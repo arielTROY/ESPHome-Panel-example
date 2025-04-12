@@ -33,6 +33,7 @@ module Veramonitor:
     i2c_connector = new QwiicConnector
     pdm = new PDM_I2S
     mic = new SPH0641LU4H_minus_1
+    c_vcc = new Capacitor; c_vcc.value = 10nF +/- 20%; c_vcc.footprint = "C0402"; c_vcc.p1 ~ mic.VDD; c_vcc.p2 ~ mic.GROUND
     ldo = new AMS111733
     micro = new ESP32S3
     lcd = new TFTDisplay
