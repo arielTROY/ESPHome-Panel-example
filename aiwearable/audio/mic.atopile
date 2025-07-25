@@ -1,0 +1,14 @@
+name mic
+
+part ICS_41351 = lib.audio.mic.ics_41351
+
+net VDD, GND, PDM_CLK, PDM_DATA
+
+connect {
+  ICS_41351.VDD  <- VDD
+  ICS_41351.GND  =  GND
+  ICS_41351.CLK  <- PDM_CLK
+  ICS_41351.DATA -> PDM_DATA
+}
+
+export VDD, GND, PDM_CLK, PDM_DATA

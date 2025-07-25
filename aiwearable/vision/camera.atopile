@@ -1,0 +1,18 @@
+name camera
+
+part OV2640 = lib.imaging.camera.ov2640(fov="105deg")
+
+net VDD, GND, D[7:0], VSYNC, HREF, PCLK, I2C_SCL, I2C_SDA
+
+connect {
+  OV2640.VDD <- VDD
+  OV2640.GND =  GND
+  OV2640.D[7:0]  -> D[7:0]
+  OV2640.VSYNC   -> VSYNC
+  OV2640.HREF    -> HREF
+  OV2640.PCLK    -> PCLK
+  OV2640.SCL <-> I2C_SCL
+  OV2640.SDA <-> I2C_SDA
+}
+
+export *

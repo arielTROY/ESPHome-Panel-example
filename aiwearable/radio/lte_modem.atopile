@@ -1,0 +1,25 @@
+name lte_modem
+
+part nRF9160_SICA = lib.radio.nordic.nrf9160_sica
+part SIM    = lib.conn.sim.nano
+part ANT_L  = lib.rf.antenna.2450_chip
+
+net VDD    = net("3V3")
+net GND    = net("GND")
+net UART_TX, UART_RX, RST, PWRKEY
+net ANT    = net("ANT")
+
+connect {
+  nRF9160_SICA.VDD <- VDD
+  nRF9160_SICA.GND = GND
+  nRF9160_SICA.UART_TX -> UART_TX
+  nRF9160_SICA.UART_RX <- UART_RX
+  nRF9160_SICA.RESET   <- RST
+  nRF9160_SICA.PWRKEY  <- PWRKEY
+  nRF9160_SICA.SIM     <-> SIM
+  nRF9160_SICA.ANT0    <-> ANT
+  ANT_L.PAD1           <-> ANT
+  ANT_L.PAD2           = GND
+}
+
+export VDD, GND, UART_TX, UART_RX, RST, PWRKEY, ANT
