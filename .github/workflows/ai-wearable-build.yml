@@ -1,0 +1,46 @@
+name: Build AI-Wearable PCBs
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+
+jobs:
+  build:
+    name: Build all AI-Wearable PCBs
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target-dir: [ "aiwearable", "ai-wearable-pcb" ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Atopile
+        run: |
+          python -m pip install --upgrade pip
+          pip install atopile
+
+      - name: Build PCB in ${{ matrix.target-dir }}
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          # Build all available artefacts for the project
+          ato build --schematic --pcb --bom --placement
+
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target-dir }}-pcba-files
+          path: ${{ matrix.target-dir }}/build/
