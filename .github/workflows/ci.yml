@@ -29,8 +29,9 @@ jobs:
             bash -c '
               echo "=== Applying fixes for known atopile/faebryk issues ==="
               
-              # Run our comprehensive inline fix
-              python3 inline_fix.py
+              # Run our docker fix script
+              chmod +x /github/workspace/docker_fix_script.sh
+              /github/workspace/docker_fix_script.sh
               
               echo "=== Running atopile install ==="
               atopile install || {

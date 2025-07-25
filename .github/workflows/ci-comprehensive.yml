@@ -1,0 +1,107 @@
+name: CI Build (Comprehensive Fix)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build with atopile-kicad (with comprehensive fixes)
+        env:
+          ATO_CI: "1"
+          ATOPILE_TELEMETRY: "false"
+          DO_NOT_TRACK: "1"
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            -e ATOPILE_TELEMETRY=false \
+            -e DO_NOT_TRACK=1 \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              # Run the fix script
+              chmod +x /github/workspace/docker_fix_script.sh
+              /github/workspace/docker_fix_script.sh
+              
+              echo "=== Running atopile install ==="
+              atopile install || {
+                echo "=== Install failed with error, debugging ==="
+                echo "Exit code: $?"
+                
+                # Show the last few lines of any Python traceback
+                echo "=== Checking for Python errors ==="
+                
+                # Try running with more verbose output
+                echo "=== Retrying with debug output ==="
+                python3 -u -c "
+import os
+os.environ['\''ATOPILE_TELEMETRY'\''] = '\''false'\''
+try:
+    import atopile.cli
+    atopile.cli.main(['\''install'\''])
+except Exception as e:
+    print(f'\''Error: {e}'\'')
+    import traceback
+    traceback.print_exc()
+    
+    # Try to provide more context
+    if '\''message'\'' in str(e):
+        print('\''\\nThis appears to be the message attribute error.'\'')
+        print('\''The fix may not have been applied correctly.'\'')
+" || true
+                
+                exit 1
+              }
+              
+              echo "=== Running atopile build ==="
+              atopile build || {
+                echo "=== Build failed ==="
+                exit 1
+              }
+              
+              echo "=== Build completed successfully ==="
+            '
+
+      - name: Check build output
+        run: |
+          echo "=== Checking build output ==="
+          
+          # Check if build directory exists
+          if [ -d "build" ]; then
+            echo "Build directory found!"
+            echo "=== Build directory contents ==="
+            find build -type f | sort
+          else
+            echo "Build directory not found"
+          fi
+          
+          # Look for KiCad files
+          echo "=== KiCad files in workspace ==="
+          find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | sort
+          
+          # Look for other outputs
+          echo "=== Other build outputs ==="
+          find . -name "*.zip" -o -name "*.csv" -o -name "*.pos" -o -name "*.pdf" | sort
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts-comprehensive
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
+            **/*.pdf
