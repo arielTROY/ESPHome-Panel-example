@@ -9,26 +9,12 @@ builds:
     entry: elec/src/kailh-sw.ato:KailhSW
 
 dependencies:
-  generics:
-    version_spec: "@09ad6baeaab93d53b9b6c90069ac750f4161d76f"
-    path: elec/src/generics
-  rp2040:
-    version_spec: "@f6c06f3f01c257523d4c15ad5c5a48809b8914c8"
-    path: elec/src/rp2040
-  qwiic-connectors:
-    path: elec/src/qwiic-connectors
-  jst-gh:
-    path: elec/src/jst-gh
-  esp32-s3:
-    version_spec: "@84a3387cfa3fb6772459bec7b2bebbbded5790ec"
-    path: elec/src/esp32-s3
-  usb-connectors:
-    version_spec: "@1be66943895494857495c3afe24389a895b9fac8"
-    path: elec/src/usb-connectors
-  sk6805-ec20:
-    path: elec/src/sk6805-ec20
-  programming-headers:
-    version_spec: "@e3a6ca6b5b93e3c2db899aa7cc5a8fde17920abc"
-    path: elec/src/programming-headers
-  ams1117-33:
-    path: elec/src/ams1117-33
+  - path: elec/src/generics
+  - path: elec/src/rp2040
+  - path: elec/src/qwiic-connectors
+  - path: elec/src/jst-gh
+  - path: elec/src/esp32-s3
+  - path: elec/src/usb-connectors
+  - path: elec/src/sk6805-ec20
+  - path: elec/src/programming-headers
+  - path: elec/src/ams1117-33
