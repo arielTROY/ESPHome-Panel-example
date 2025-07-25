@@ -1,0 +1,224 @@
+import Power from "generics/interfaces.ato"
+import I2C from "generics/interfaces.ato"
+import SPI from "generics/interfaces.ato"
+import UART from "generics/interfaces.ato"
+import USB from "generics/interfaces.ato"
+import Capacitor from "generics/capacitors.ato"
+import Resistor from "generics/resistors.ato"
+
+# Ultra-Compact AI Wearable Module (Target: <30mm x 30mm)
+module AIWearableCompact:
+    # Power rails
+    power_3v3 = new Power
+    power_3v3.voltage = 3.3V +/- 5%
+    
+    power_1v8 = new Power
+    power_1v8.voltage = 1.8V +/- 5%
+    
+    # Battery and power management
+    battery = new MicroBatteryConnector
+    pmic = new PowerManagementIC
+    
+    # Main MCU - nRF52840 (ultra-low power, BLE + Arduino compatible)
+    mcu = new nRF52840Minimal
+    mcu.vdd ~ power_3v3
+    
+    # Camera - Ultra-small module
+    camera = new MicroCameraModule
+    camera.power ~ power_1v8
+    camera.i2c ~ mcu.i2c
+    camera.data ~ mcu.spi  # Using SPI for faster data transfer
+    
+    # Microphone - Ultra-small MEMS
+    mic = new UltraSmallMEMSMic
+    mic.power ~ power_3v3
+    mic.pdm ~ mcu.pdm
+    
+    # Speaker - Piezo or micro speaker
+    speaker = new MicroSpeaker
+    speaker.power ~ power_3v3
+    speaker.audio ~ mcu.pwm
+    
+    # Cellular Module - Compact eSIM/LTE-M module
+    cellular = new CompactCellularModule
+    cellular.power ~ power_3v3
+    cellular.uart ~ mcu.uart
+    
+    # Charging interface - Magnetic pads preferred for size
+    charging = new MagneticChargingPads
+    charging.power ~ pmic.input
+    
+    # Power switch - Ultra-small
+    switch = new MicroSwitch
+    switch.battery ~ battery.output
+    switch.system ~ pmic.battery_input
+
+# Ultra-minimal nRF52840 implementation
+module nRF52840Minimal:
+    ic = new nRF52840_AQFN73
+    
+    # Only essential crystals
+    xtal_32k = new Crystal32kHz_2012  # 2.0x1.2mm crystal
+    
+    # Interfaces
+    vdd = new Power
+    gnd = new Ground
+    i2c = new I2C
+    uart = new UART
+    spi = new SPI
+    pdm = new PDMInterface
+    pwm = new PWMOutput
+    
+    # Minimal decoupling
+    c1 = new Capacitor
+    c1.value = 4.7uF +/- 20%
+    c1.package = "0402"
+    
+    c2 = new Capacitor
+    c2.value = 100nF +/- 10%
+    c2.package = "0201"
+    
+    # Connect crystal
+    ic.xc1 ~ xtal_32k.p1
+    ic.xc2 ~ xtal_32k.p2
+
+# Ultra-compact camera module
+module MicroCameraModule:
+    # Using smallest available camera sensor
+    sensor = new OV7675_CSP
+    
+    power = new Power
+    i2c = new I2C
+    data = new SPI
+    
+    # Integrated lens assembly
+    lens = new MicroLensAssembly
+
+# Ultra-small MEMS microphone
+module UltraSmallMEMSMic:
+    mic = new ICS41350
+    
+    power = new Power
+    pdm = new PDMInterface
+    
+    # Single decoupling cap
+    c1 = new Capacitor
+    c1.value = 100nF +/- 10%
+    c1.package = "0201"
+
+# Micro speaker module
+module MicroSpeaker:
+    # Using piezo or very small magnetic speaker
+    driver = new PAM8302A  # Ultra-small Class-D amp
+    spk = new PiezoSpeaker_5mm
+    
+    power = new Power
+    audio = new PWMOutput
+    
+    driver.in ~ audio
+    driver.out ~ spk.terminal
+
+# Compact cellular module with eSIM
+module CompactCellularModule:
+    # Using smallest LTE-M/NB-IoT module
+    module = new SIM7080G
+    
+    power = new Power
+    uart = new UART
+    
+    # Integrated antenna
+    antenna = new ChipAntenna_LTE
+
+# Power Management IC
+module PowerManagementIC:
+    # All-in-one PMIC with charger
+    ic = new BQ25125
+    
+    input = new Power
+    battery_input = new Power
+    system = new Power
+    
+    # Minimal external components
+    r_iset = new Resistor
+    r_iset.value = 4.7k +/- 1%
+    r_iset.package = "0201"
+
+# Magnetic charging pads
+module MagneticChargingPads:
+    pad_pos = new ChargingPad
+    pad_neg = new ChargingPad
+    
+    power = new Power
+
+# Micro battery connector
+module MicroBatteryConnector:
+    # Ultra-small 2-pin connector
+    conn = new PicoBlade_2pin
+    output = new Power
+
+# Micro switch
+module MicroSwitch:
+    sw = new SPDT_2x3mm
+    
+    battery = new Power
+    system = new Power
+
+# Component definitions with JLCPCB part numbers
+component nRF52840_AQFN73:
+    footprint = "AQFN-73(7x7)"
+    mpn = "nRF52840-QIAA-R"
+    lcsc = "C190794"
+
+component OV7675_CSP:
+    footprint = "CSP-20"
+    mpn = "OV7675"
+
+component ICS41350:
+    footprint = "LGA-5(3x4)"
+    mpn = "ICS-41350"
+
+component PAM8302A:
+    footprint = "MSOP-8"
+    mpn = "PAM8302ASCR"
+
+component PiezoSpeaker_5mm:
+    footprint = "Buzzer_SMD_5x5"
+    mpn = "SMT-0540-S-R"
+
+component SIM7080G:
+    footprint = "LCC-42(16x16)"
+    mpn = "SIM7080G"
+
+component BQ25125:
+    footprint = "WCSP-20(2.17x2.33)"
+    mpn = "BQ25125YFPR"
+
+component Crystal32kHz_2012:
+    footprint = "Crystal_SMD_2012"
+    mpn = "FC-12M-32.768K"
+
+component ChipAntenna_LTE:
+    footprint = "Antenna_1206"
+    mpn = "W3012"
+
+component PicoBlade_2pin:
+    footprint = "Molex_PicoBlade_2pin"
+    mpn = "53261-0271"
+
+component SPDT_2x3mm:
+    footprint = "SW_SPDT_CK_JS202011"
+    mpn = "JS202011SCQN"
+
+component ChargingPad:
+    footprint = "TestPad_D2.5mm"
+    mpn = "Magnetic_Pad"
+
+# Additional support components
+component PDMInterface:
+    # Digital microphone interface
+
+component PWMOutput:
+    # PWM audio output
+
+component MicroLensAssembly:
+    # Integrated lens for camera
