@@ -16,22 +16,33 @@ def find_faebryk_files():
     possible_paths = []
     
     # Check site-packages locations
-    for site_dir in site.getsitepackages():
-        possible_paths.append(os.path.join(site_dir, "faebryk"))
+    try:
+        for site_dir in site.getsitepackages():
+            possible_paths.append(os.path.join(site_dir, "faebryk"))
+    except:
+        pass
     
     # Check user site-packages
-    user_site = site.getusersitepackages()
-    if user_site:
-        possible_paths.append(os.path.join(user_site, "faebryk"))
+    try:
+        user_site = site.getusersitepackages()
+        if user_site:
+            possible_paths.append(os.path.join(user_site, "faebryk"))
+    except:
+        pass
     
-    # Check UV tools location
+    # Check UV tools location (more comprehensive patterns)
     uv_patterns = [
         "/root/.local/share/uv/tools/atopile/lib/python*/site-packages/faebryk",
+        "/root/.local/share/uv/tools/*/lib/python*/site-packages/faebryk",
         os.path.expanduser("~/.local/share/uv/tools/atopile/lib/python*/site-packages/faebryk"),
+        os.path.expanduser("~/.local/share/uv/tools/*/lib/python*/site-packages/faebryk"),
     ]
     
     for pattern in uv_patterns:
-        possible_paths.extend(glob.glob(pattern))
+        try:
+            possible_paths.extend(glob.glob(pattern))
+        except:
+            pass
     
     # Check virtual environment locations
     venv_patterns = [
@@ -41,7 +52,22 @@ def find_faebryk_files():
     ]
     
     for pattern in venv_patterns:
-        possible_paths.extend(glob.glob(pattern))
+        try:
+            possible_paths.extend(glob.glob(pattern))
+        except:
+            pass
+    
+    # Also check common system locations
+    system_patterns = [
+        "/usr/local/lib/python*/site-packages/faebryk",
+        "/usr/lib/python*/site-packages/faebryk",
+    ]
+    
+    for pattern in system_patterns:
+        try:
+            possible_paths.extend(glob.glob(pattern))
+        except:
+            pass
     
     # Return existing paths
     return [p for p in possible_paths if os.path.exists(p)]
@@ -56,34 +82,39 @@ def patch_dependencies_file(faebryk_path):
     
     print(f"Found dependencies.py at: {deps_file}")
     
-    # Read the file
-    with open(deps_file, 'r') as f:
-        content = f.read()
+    try:
+        # Read the file
+        with open(deps_file, 'r') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return False
     
     # Create backup
     backup_path = deps_file + ".backup"
     if not os.path.exists(backup_path):
-        with open(backup_path, 'w') as f:
-            f.write(content)
-        print(f"Created backup at: {backup_path}")
+        try:
+            with open(backup_path, 'w') as f:
+                f.write(content)
+            print(f"Created backup at: {backup_path}")
+        except Exception as e:
+            print(f"Warning: Could not create backup: {e}")
     
     original_content = content
     
-    # Fix 1: InvalidPackageIdentifierError.message -> str(e)
-    patterns = [
-        (r'f"{e\.identifier}:\s*{e\.message}"', 'f"{e.identifier}: {str(e)}"'),
-        (r'e\.message', 'getattr(e, "message", str(e))'),
-    ]
+    # Fix 1: More comprehensive fix for error message handling
+    # Look for the specific error_list line that's causing issues
+    error_list_pattern = r'error_list\s*=\s*\[f["\']([^"\']*){e\.identifier}[^"\']*{e\.message}[^"\']*["\']'
+    if re.search(error_list_pattern, content):
+        content = re.sub(
+            error_list_pattern,
+            r'error_list = [f"\1{e.identifier}: {getattr(e, \'message\', getattr(e, \'error\', str(e)))}" for e in acc_errors]',
+            content
+        )
+        print("Applied fix for error_list comprehension")
     
-    for pattern, replacement in patterns:
-        if re.search(pattern, content):
-            content = re.sub(pattern, replacement, content)
-            print(f"Applied fix for pattern: {pattern}")
-    
-    # Fix 2: PackagesApiHTTPError.message -> str(e) or e.error
-    # Look for error handling code that might reference e.message
-    if "PackagesApiHTTPError" in content or "e.message" in content:
-        # Replace any remaining e.message with a safe alternative
+    # Fix 2: Generic fix for any remaining e.message references
+    if "e.message" in content:
         content = re.sub(
             r'(\w+)\.message\b',
             r'getattr(\1, "message", getattr(\1, "error", str(\1)))',
@@ -91,22 +122,26 @@ def patch_dependencies_file(faebryk_path):
         )
         print("Applied generic fix for .message attributes")
     
-    # Fix 3: Specific fix for the error list comprehension at line 298
-    if "error_list = [" in content and "e.message" in content:
-        # Find and fix the specific line causing issues
+    # Fix 3: Specific pattern for the line 298 error
+    if "for e in acc_errors" in content:
+        # Replace any pattern like f"{e.identifier}: {e.message}"
         content = re.sub(
-            r'error_list\s*=\s*\[f"{e\.identifier}:\s*{e\.message}"',
-            'error_list = [f"{e.identifier}: {getattr(e, \'message\', getattr(e, \'error\', str(e)))}"',
+            r'f["\']([^"\']*){e\.identifier}([^"\']*){e\.message}([^"\']*)["\']',
+            r'f"\1{e.identifier}\2{getattr(e, \'message\', getattr(e, \'error\', str(e)))}\3"',
             content
         )
-        print("Applied specific fix for error_list comprehension")
+        print("Applied specific fix for error formatting")
     
     # Write the patched content if changes were made
     if content != original_content:
-        with open(deps_file, 'w') as f:
-            f.write(content)
-        print("Successfully patched the file!")
-        return True
+        try:
+            with open(deps_file, 'w') as f:
+                f.write(content)
+            print("Successfully patched dependencies.py!")
+            return True
+        except Exception as e:
+            print(f"Error writing patched file: {e}")
+            return False
     else:
         print("No changes needed or already patched.")
         return False
@@ -119,13 +154,17 @@ def patch_telemetry_file(faebryk_path):
         os.path.join(os.path.dirname(os.path.dirname(faebryk_path)), "atopile"),
         # Also check UV tools location
         "/root/.local/share/uv/tools/atopile/lib/python*/site-packages/atopile",
+        "/root/.local/share/uv/tools/*/lib/python*/site-packages/atopile",
     ]
     
     # Expand glob patterns
     expanded_patterns = []
     for pattern in atopile_patterns:
         if '*' in pattern:
-            expanded_patterns.extend(glob.glob(pattern))
+            try:
+                expanded_patterns.extend(glob.glob(pattern))
+            except:
+                pass
         else:
             expanded_patterns.append(pattern)
     
@@ -134,40 +173,55 @@ def patch_telemetry_file(faebryk_path):
         if os.path.exists(telemetry_file):
             print(f"Found telemetry.py at: {telemetry_file}")
             
-            with open(telemetry_file, 'r') as f:
-                content = f.read()
+            try:
+                with open(telemetry_file, 'r') as f:
+                    content = f.read()
+            except Exception as e:
+                print(f"Error reading telemetry file: {e}")
+                continue
             
             # Create backup
             backup_path = telemetry_file + ".backup"
             if not os.path.exists(backup_path):
-                with open(backup_path, 'w') as f:
-                    f.write(content)
+                try:
+                    with open(backup_path, 'w') as f:
+                        f.write(content)
+                    print(f"Created telemetry backup at: {backup_path}")
+                except Exception as e:
+                    print(f"Warning: Could not create telemetry backup: {e}")
             
             original_content = content
             
             # Fix 1: Add dataclasses import if needed
-            if "yaml.dump(config, f)" in content and "from dataclasses import asdict" not in content:
-                # Add import at the top of the file after other imports
-                import_added = False
+            if ("yaml.dump(config, f)" in content and 
+                "from dataclasses import asdict" not in content and
+                "import dataclasses" not in content):
+                
+                # Find the best place to add the import
                 lines = content.split('\n')
+                import_added = False
+                
+                # Look for existing imports
                 for i, line in enumerate(lines):
-                    if line.startswith('from ') or line.startswith('import '):
-                        # Find the last import line
+                    if (line.strip().startswith('from ') or 
+                        line.strip().startswith('import ')) and not import_added:
+                        # Continue to find the last import
                         continue
-                    elif i > 0 and not line.strip() and not import_added:
-                        # Insert after imports
+                    elif (i > 0 and not line.strip() and 
+                          i > 0 and (lines[i-1].startswith('from ') or lines[i-1].startswith('import '))):
+                        # Insert after imports block
                         lines.insert(i, 'from dataclasses import asdict')
                         import_added = True
                         break
                 
                 if not import_added:
-                    # If no imports found, add at the beginning
-                    lines.insert(0, 'from dataclasses import asdict')
+                    # If no good place found, add after the first few lines
+                    lines.insert(3, 'from dataclasses import asdict')
                 
                 content = '\n'.join(lines)
                 print("Added dataclasses import")
             
-            # Fix 2: Replace yaml.dump(config, f) with yaml.dump(asdict(config), f)
+            # Fix 2: Replace yaml.dump(config, f) with safe version
             if "yaml.dump(config, f)" in content:
                 content = re.sub(
                     r'yaml\.dump\(config,\s*f\)',
@@ -176,43 +230,15 @@ def patch_telemetry_file(faebryk_path):
                 )
                 print("Fixed yaml.dump to handle dataclass serialization")
             
-            # Fix 3: Add a custom representer for TelemetryConfig if needed
-            if "TelemetryConfig" in content and "yaml_representer" not in content:
-                # Add a custom representer after the class definition
-                lines = content.split('\n')
-                for i, line in enumerate(lines):
-                    if 'class TelemetryConfig' in line:
-                        # Find the end of the class
-                        indent_level = len(line) - len(line.lstrip())
-                        j = i + 1
-                        while j < len(lines) and (lines[j].strip() == '' or 
-                                                 (lines[j].strip() != '' and 
-                                                  len(lines[j]) - len(lines[j].lstrip()) > indent_level)):
-                            j += 1
-                        
-                        # Insert the representer after the class
-                        representer_code = '''
-# Add YAML representer for TelemetryConfig
-def telemetry_config_representer(dumper, data):
-    return dumper.represent_dict(asdict(data) if hasattr(data, "__dataclass_fields__") else data.__dict__)
-
-try:
-    from ruamel.yaml import YAML
-    YAML.add_representer(TelemetryConfig, telemetry_config_representer)
-except:
-    pass
-'''
-                        lines.insert(j, representer_code)
-                        content = '\n'.join(lines)
-                        print("Added custom YAML representer for TelemetryConfig")
-                        break
-            
             # Write back if changed
             if content != original_content:
-                with open(telemetry_file, 'w') as f:
-                    f.write(content)
-                print("Patched telemetry.py")
-                return True
+                try:
+                    with open(telemetry_file, 'w') as f:
+                        f.write(content)
+                    print("Successfully patched telemetry.py!")
+                    return True
+                except Exception as e:
+                    print(f"Error writing patched telemetry file: {e}")
     
     return False
 
@@ -225,8 +251,27 @@ def main():
     
     if not faebryk_paths:
         print("ERROR: Could not find faebryk installation")
+        print("\nSearched in common locations:")
+        print("- site-packages directories")
+        print("- UV tools directories")
+        print("- Virtual environments")
+        print("- System directories")
         print("\nPlease make sure atopile/faebryk is installed.")
         print("You can also run this script with the path to faebryk as an argument.")
+        
+        # Try to provide more debugging info
+        print("\nDebugging info:")
+        try:
+            import faebryk
+            print(f"faebryk module found at: {faebryk.__file__}")
+            faebryk_dir = os.path.dirname(faebryk.__file__)
+            print(f"Attempting to patch: {faebryk_dir}")
+            if patch_dependencies_file(faebryk_dir):
+                print("Successfully patched using module location!")
+                return
+        except ImportError:
+            print("faebryk module not importable")
+        
         sys.exit(1)
     
     print(f"Found {len(faebryk_paths)} faebryk installation(s)")
