@@ -1,4 +1,4 @@
-name: CI Build
+name: CI Build (Simple Fix)
 
 on:
   workflow_dispatch:
@@ -16,12 +16,13 @@ jobs:
 
       - name: Build with atopile-kicad
         env:
+          # Set CI environment to disable interactive prompts
           ATO_CI: "1"
           ATOPILE_TELEMETRY: "false"
           PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
-          # Pre-configure atopile to skip interactive prompts
-          ATOPILE_NO_INTERACTIVE: "1"
-          ATOPILE_SKIP_KICAD_PLUGIN: "1"
+          # Disable interactive mode
+          CI: "true"
+          DEBIAN_FRONTEND: "noninteractive"
         continue-on-error: true
         run: |
           docker run --rm \
@@ -29,17 +30,15 @@ jobs:
             -w /github/workspace \
             -e ATO_CI=1 \
             -e ATOPILE_TELEMETRY=false \
-            -e ATOPILE_NO_INTERACTIVE=1 \
-            -e ATOPILE_SKIP_KICAD_PLUGIN=1 \
+            -e CI=true \
+            -e DEBIAN_FRONTEND=noninteractive \
             -e PYTHONPATH=/github/workspace \
             ghcr.io/atopile/atopile-kicad:latest \
             bash -c '
-              echo "=== Pre-configuring atopile for CI ==="
+              echo "=== Setting up atopile for CI ==="
               
-              # Create atopile config directory
+              # Pre-create config to mark KiCAD plugin as already installed
               mkdir -p ~/.config/atopile
-              
-              # Create a pre-configured config file to skip first-run wizard
               cat > ~/.config/atopile/config.yaml << EOF
 telemetry: false
 id: ci-runner
@@ -47,23 +46,21 @@ kicad_plugin_installed: true
 first_run_complete: true
 EOF
               
-              echo "=== Applying fixes for known atopile/faebryk issues ==="
-              
-              # Run our docker fix script
-              chmod +x /github/workspace/docker_fix_script.sh
-              /github/workspace/docker_fix_script.sh
+              # Run docker fix script if it exists
+              if [ -f /github/workspace/docker_fix_script.sh ]; then
+                chmod +x /github/workspace/docker_fix_script.sh
+                /github/workspace/docker_fix_script.sh
+              fi
               
               echo "=== Running atopile install ==="
-              atopile install || {
-                echo "=== Install failed, trying alternative approaches ==="
-                
-                # Try with upgrade flag
-                echo "Trying with --upgrade flag..."
-                atopile install --upgrade || {
+              # Use yes to automatically answer yes to any prompts
+              yes | atopile install || {
+                echo "=== Install failed, trying with --upgrade ==="
+                yes | atopile install --upgrade || {
                   echo "=== Both install attempts failed ==="
-                  echo "Listing workspace contents for debugging:"
+                  echo "Workspace contents:"
                   ls -la /github/workspace/
-                  echo "Checking ato.yaml:"
+                  echo "ato.yaml contents:"
                   cat /github/workspace/ato.yaml || echo "No ato.yaml found"
                   exit 1
                 }
@@ -81,24 +78,19 @@ EOF
 
       - name: Check build output
         run: |
-          # List all files to see what was generated
-          echo "=== Listing all files in workspace ==="
+          echo "=== Listing generated files ==="
           find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" -o -name "*.kicad_*" -o -name "*.pdf" | sort
           
-          # Check if build directory exists
           if [ -d "build" ]; then
             echo "=== Build directory contents ==="
             ls -la build/
             find build -type f | sort
-          else
-            echo "Build directory does not exist"
           fi
           
-          # Check for any KiCad files generated
-          echo "=== Looking for KiCad files ==="
+          echo "=== KiCad files ==="
           find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | sort
 
-      - name: Upload Combined Artifacts
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:

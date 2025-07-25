@@ -1,0 +1,120 @@
+name: CI Build (Native)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    env:
+      # Disable all interactive prompts and telemetry
+      ATO_CI: "1"
+      ATOPILE_TELEMETRY: "false"
+      ATOPILE_NO_INTERACTIVE: "1"
+      ATOPILE_SKIP_KICAD_PLUGIN: "1"
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcairo2-dev \
+            libgirepository1.0-dev \
+            pkg-config \
+            python3-dev \
+            gir1.2-gtk-3.0
+
+      - name: Pre-configure atopile
+        run: |
+          # Create config directory
+          mkdir -p ~/.config/atopile
+          
+          # Create pre-configured config to skip all prompts
+          cat > ~/.config/atopile/config.yaml << EOF
+          telemetry: false
+          id: github-ci-runner
+          kicad_plugin_installed: true
+          first_run_complete: true
+          analytics_enabled: false
+          EOF
+          
+          # Create cache directory
+          mkdir -p ~/.cache/atopile
+
+      - name: Install atopile
+        run: |
+          python -m pip install --upgrade pip
+          pip install atopile
+
+      - name: Verify atopile installation
+        run: |
+          echo "=== Atopile version ==="
+          atopile --version || echo "Failed to get version"
+          
+          echo "=== Python path ==="
+          python -c "import sys; print('\n'.join(sys.path))"
+
+      - name: Install dependencies
+        run: |
+          echo "=== Installing project dependencies ==="
+          atopile install || {
+            echo "Install failed, trying with --upgrade"
+            atopile install --upgrade || {
+              echo "Both install attempts failed"
+              echo "Current directory contents:"
+              ls -la
+              echo "ato.yaml contents:"
+              cat ato.yaml || echo "No ato.yaml found"
+              exit 1
+            }
+          }
+
+      - name: Build project
+        run: |
+          echo "=== Building project ==="
+          atopile build || {
+            echo "Build failed, checking for partial results"
+            find . -name "*.kicad_*" -o -name "build" -type d
+            exit 1
+          }
+
+      - name: Check build output
+        run: |
+          echo "=== Build output ==="
+          if [ -d "build" ]; then
+            echo "Build directory contents:"
+            ls -la build/
+            find build -type f | sort
+          else
+            echo "No build directory found"
+          fi
+          
+          echo "=== KiCad files ==="
+          find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | sort
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts-native
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
+            **/*.pdf
