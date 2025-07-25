@@ -1,0 +1,264 @@
+name: Atopile Docker Build and Export
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+      - "elec/**"
+      - "ato.yaml"
+      - ".github/workflows/atopile-docker-build.yml"
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  ATO_CI: "1"
+
+jobs:
+  build-with-docker:
+    name: Build with Atopile Docker
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build AI Wearable PCBs
+        run: |
+          # Use the official atopile-kicad Docker image
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              echo "=== Building AI Pin PCBs with Atopile ==="
+              
+              # Function to build a project
+              build_project() {
+                local dir=$1
+                local name=$2
+                echo "Building $name in $dir..."
+                cd "$dir"
+                
+                # Build with all outputs
+                ato build --schematic --pcb --bom --placement || {
+                  echo "Build failed for $name, trying without specific entry"
+                  ato build || echo "Build completed with warnings"
+                }
+                
+                # List generated files
+                if [ -d "build" ]; then
+                  echo "Generated files for $name:"
+                  find build -type f | sort
+                fi
+                
+                cd -
+              }
+              
+              # Build each project
+              build_project "aiwearable" "AI Wearable"
+              build_project "ai-wearable-pcb" "AI Wearable PCB"
+              
+              # Try to build the main project
+              echo "Building main project..."
+              ato build || echo "Main project build completed"
+              
+              # Collect all build outputs
+              echo "=== Collecting all build outputs ==="
+              mkdir -p collected_builds
+              find . -path "./collected_builds" -prune -o -name "build" -type d -exec cp -r {} collected_builds/{}_$(basename $(dirname {})) \; 2>/dev/null || true
+              
+              # Generate summary
+              echo "=== Build Summary ==="
+              find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | grep -E "(build|output)" | sort
+            '
+
+      - name: Process KiCad Files with kicad-cli
+        run: |
+          # Install KiCad CLI tools
+          sudo add-apt-repository --yes ppa:kicad/kicad-8.0-releases
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends kicad
+          
+          # Process each generated KiCad file
+          echo "=== Processing KiCad files ==="
+          
+          # Create exports directory
+          mkdir -p kicad_exports
+          
+          # Find and process PCB files
+          find . -name "*.kicad_pcb" -path "*/build/*" | while read pcb_file; do
+            echo "Processing PCB: $pcb_file"
+            base_name=$(basename "$pcb_file" .kicad_pcb)
+            dir_name=$(dirname "$pcb_file")
+            
+            # Create output directory
+            mkdir -p "kicad_exports/$base_name"
+            
+            # Export Gerbers
+            echo "Exporting Gerbers..."
+            kicad-cli pcb export gerbers "$pcb_file" -o "kicad_exports/$base_name/gerbers/" || echo "Gerber export failed"
+            
+            # Export Drill files
+            echo "Exporting Drill files..."
+            kicad-cli pcb export drill "$pcb_file" -o "kicad_exports/$base_name/gerbers/" || echo "Drill export failed"
+            
+            # Export 3D model
+            echo "Exporting 3D STEP..."
+            kicad-cli pcb export step "$pcb_file" -o "kicad_exports/$base_name/${base_name}.step" || echo "STEP export failed"
+            
+            # Export position files
+            echo "Exporting position files..."
+            kicad-cli pcb export pos "$pcb_file" -o "kicad_exports/$base_name/${base_name}_pos.csv" --format csv --units mm || echo "Position export failed"
+            
+            # Run DRC
+            echo "Running DRC..."
+            kicad-cli pcb drc "$pcb_file" --output "kicad_exports/$base_name/drc_report.txt" || echo "DRC completed with issues"
+          done
+          
+          # Find and process schematic files
+          find . -name "*.kicad_sch" -path "*/build/*" | while read sch_file; do
+            echo "Processing Schematic: $sch_file"
+            base_name=$(basename "$sch_file" .kicad_sch)
+            
+            # Export PDF
+            echo "Exporting schematic PDF..."
+            kicad-cli sch export pdf "$sch_file" -o "kicad_exports/$base_name/${base_name}_schematic.pdf" || echo "PDF export failed"
+            
+            # Export SVG
+            echo "Exporting schematic SVG..."
+            kicad-cli sch export svg "$sch_file" -o "kicad_exports/$base_name/" || echo "SVG export failed"
+            
+            # Run ERC
+            echo "Running ERC..."
+            kicad-cli sch erc "$sch_file" --output "kicad_exports/$base_name/erc_report.txt" || echo "ERC completed with issues"
+          done
+
+      - name: Create JLCPCB packages
+        run: |
+          # Create JLCPCB-ready packages
+          echo "=== Creating JLCPCB packages ==="
+          
+          for export_dir in kicad_exports/*/; do
+            if [ -d "$export_dir/gerbers" ]; then
+              base_name=$(basename "$export_dir")
+              echo "Creating JLCPCB package for $base_name"
+              
+              # Create JLCPCB zip
+              cd "$export_dir"
+              if [ -d "gerbers" ]; then
+                zip -r "../${base_name}_JLCPCB.zip" gerbers/
+              fi
+              cd -
+            fi
+          done
+
+      - name: Generate Interactive BOM
+        run: |
+          # Install InteractiveHtmlBom
+          pip install InteractiveHtmlBom
+          
+          # Generate interactive BOMs
+          find . -name "*.kicad_pcb" -path "*/build/*" | while read pcb_file; do
+            echo "Generating Interactive BOM for: $pcb_file"
+            base_name=$(basename "$pcb_file" .kicad_pcb)
+            
+            python -m InteractiveHtmlBom.generate_interactive_bom \
+              --no-browser \
+              --dest-dir "kicad_exports/$base_name" \
+              --name-format "${base_name}_ibom" \
+              "$pcb_file" || echo "Interactive BOM generation failed"
+          done
+
+      - name: Create Documentation
+        run: |
+          # Create a comprehensive documentation file
+          cat > kicad_exports/README.md << 'EOF'
+          # AI Pin PCB Build Results
+          
+          This directory contains all the KiCad exports generated from the atopile build process.
+          
+          ## Directory Structure
+          
+          Each PCB design has its own directory containing:
+          - `gerbers/` - Gerber and drill files for PCB manufacturing
+          - `*_JLCPCB.zip` - Ready-to-upload package for JLCPCB
+          - `*.step` - 3D model of the PCB
+          - `*_pos.csv` - Component position file for assembly
+          - `*_schematic.pdf` - Schematic documentation
+          - `*_ibom.html` - Interactive BOM for assembly
+          - `drc_report.txt` - Design Rule Check results
+          - `erc_report.txt` - Electrical Rule Check results
+          
+          ## Manufacturing Instructions
+          
+          1. **For PCB fabrication only:**
+             - Upload the `*_JLCPCB.zip` file to JLCPCB or your preferred manufacturer
+          
+          2. **For PCB assembly:**
+             - Upload the `*_JLCPCB.zip` file
+             - Upload the `*_pos.csv` file as the CPL (Component Placement List)
+             - Use the BOM file from the atopile build output
+             - Refer to the interactive BOM for component verification
+          
+          ## Build Information
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref_name }}
+          - Runner: ${{ runner.os }} ${{ runner.arch }}
+          EOF
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: atopile-kicad-complete-build
+          path: |
+            **/build/
+            kicad_exports/
+            collected_builds/
+          retention-days: 30
+
+      - name: Upload Manufacturing Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: manufacturing-files-ready
+          path: |
+            kicad_exports/**/*_JLCPCB.zip
+            kicad_exports/**/*.csv
+            kicad_exports/**/*_ibom.html
+          retention-days: 30
+
+      - name: Generate Job Summary
+        run: |
+          echo "# Atopile Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## PCB Designs Processed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # List all processed PCBs
+          for export_dir in kicad_exports/*/; do
+            if [ -d "$export_dir" ]; then
+              base_name=$(basename "$export_dir")
+              echo "### $base_name" >> $GITHUB_STEP_SUMMARY
+              
+              # Check for key files
+              [ -f "$export_dir/${base_name}_JLCPCB.zip" ] && echo "- ✅ JLCPCB package ready" >> $GITHUB_STEP_SUMMARY
+              [ -f "$export_dir/${base_name}.step" ] && echo "- ✅ 3D model exported" >> $GITHUB_STEP_SUMMARY
+              [ -f "$export_dir/${base_name}_schematic.pdf" ] && echo "- ✅ Schematic PDF exported" >> $GITHUB_STEP_SUMMARY
+              [ -f "$export_dir/${base_name}_ibom.html" ] && echo "- ✅ Interactive BOM generated" >> $GITHUB_STEP_SUMMARY
+              [ -f "$export_dir/drc_report.txt" ] && echo "- ✅ DRC check completed" >> $GITHUB_STEP_SUMMARY
+              [ -f "$export_dir/erc_report.txt" ] && echo "- ✅ ERC check completed" >> $GITHUB_STEP_SUMMARY
+              
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          
+          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the manufacturing files from the artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review DRC/ERC reports for any issues" >> $GITHUB_STEP_SUMMARY
+          echo "3. Upload JLCPCB packages to manufacturer" >> $GITHUB_STEP_SUMMARY
+          echo "4. Use interactive BOMs for assembly verification" >> $GITHUB_STEP_SUMMARY

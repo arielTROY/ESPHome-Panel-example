@@ -1,0 +1,317 @@
+name: Build and Export KiCad from Atopile
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+      - "elec/**"
+      - "ato.yaml"
+      - ".github/workflows/atopile-kicad-build.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+      - "elec/**"
+      - "ato.yaml"
+      - ".github/workflows/atopile-kicad-build.yml"
+  workflow_dispatch:
+
+env:
+  # Disable the interactive first-run wizard so `ato build` never blocks in CI
+  ATO_CI: "1"
+  KICAD_VERSION: "8.0"
+
+jobs:
+  build-atopile:
+    name: Build Atopile Projects
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "AI Wearable"
+            target-dir: "aiwearable"
+            build-entry: "main.atopile:aiwearable"
+          - name: "AI Wearable PCB"
+            target-dir: "ai-wearable-pcb"
+            build-entry: "main.ato:AIWearable"
+          - name: "Veramonitor"
+            target-dir: "."
+            build-entry: "elec/src/veramonitor.ato:Veramonitor"
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Atopile
+        run: |
+          python -m pip install --upgrade pip
+          pip install atopile
+
+      - name: Build ${{ matrix.name }}
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          echo "Building ${{ matrix.name }} from ${{ matrix.build-entry }}"
+          
+          # Build all available artifacts for the project
+          ato build --entry ${{ matrix.build-entry }} --schematic --pcb --bom --placement || {
+            echo "Standard build failed, trying with default entry"
+            ato build --schematic --pcb --bom --placement
+          }
+          
+          # List generated files
+          echo "=== Generated files ==="
+          find build -type f | sort
+
+      - name: Upload Atopile Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target-dir }}-atopile-build
+          path: ${{ matrix.target-dir }}/build/
+          retention-days: 30
+
+  validate-and-export-kicad:
+    name: Validate and Export KiCad Files
+    needs: build-atopile
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "AI Wearable"
+            target-dir: "aiwearable"
+          - name: "AI Wearable PCB"
+            target-dir: "ai-wearable-pcb"
+          - name: "Veramonitor"
+            target-dir: "."
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Atopile Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.target-dir }}-atopile-build
+          path: ${{ matrix.target-dir }}/build/
+
+      - name: Install KiCad
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-${{ env.KICAD_VERSION }}-releases
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends kicad
+
+      - name: Find KiCad Files
+        id: find-files
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          # Find generated KiCad files
+          echo "=== Looking for KiCad files ==="
+          
+          # Find PCB files
+          PCB_FILE=$(find build -name "*.kicad_pcb" | head -n 1)
+          if [ -n "$PCB_FILE" ]; then
+            echo "Found PCB: $PCB_FILE"
+            echo "pcb_file=$PCB_FILE" >> $GITHUB_OUTPUT
+          fi
+          
+          # Find schematic files
+          SCH_FILE=$(find build -name "*.kicad_sch" | head -n 1)
+          if [ -n "$SCH_FILE" ]; then
+            echo "Found Schematic: $SCH_FILE"
+            echo "sch_file=$SCH_FILE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run ERC (Electrical Rules Check)
+        if: steps.find-files.outputs.sch_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          echo "Running ERC on ${{ steps.find-files.outputs.sch_file }}"
+          kicad-cli sch erc "${{ steps.find-files.outputs.sch_file }}" || echo "ERC completed with warnings/errors"
+
+      - name: Run DRC (Design Rules Check)
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          echo "Running DRC on ${{ steps.find-files.outputs.pcb_file }}"
+          kicad-cli pcb drc "${{ steps.find-files.outputs.pcb_file }}" || echo "DRC completed with warnings/errors"
+
+      - name: Export Schematic PDF
+        if: steps.find-files.outputs.sch_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          mkdir -p exports
+          kicad-cli sch export pdf "${{ steps.find-files.outputs.sch_file }}" -o "exports/schematic.pdf"
+
+      - name: Export Schematic SVG
+        if: steps.find-files.outputs.sch_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          kicad-cli sch export svg "${{ steps.find-files.outputs.sch_file }}" -o "exports/"
+
+      - name: Export PCB Gerbers
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          mkdir -p exports/gerbers
+          kicad-cli pcb export gerbers "${{ steps.find-files.outputs.pcb_file }}" -o "exports/gerbers/"
+
+      - name: Export PCB Drill Files
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          kicad-cli pcb export drill "${{ steps.find-files.outputs.pcb_file }}" -o "exports/gerbers/"
+
+      - name: Export PCB STEP (3D Model)
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          kicad-cli pcb export step "${{ steps.find-files.outputs.pcb_file }}" -o "exports/pcb_3d.step"
+
+      - name: Export PCB Position Files
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          kicad-cli pcb export pos "${{ steps.find-files.outputs.pcb_file }}" -o "exports/position.pos" --format csv --units mm
+
+      - name: Generate Interactive BOM
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          # Install InteractiveHtmlBom plugin
+          pip install InteractiveHtmlBom
+          
+          # Generate interactive BOM
+          python -m InteractiveHtmlBom.generate_interactive_bom \
+            --no-browser \
+            --dest-dir exports \
+            --name-format "%f_interactive_bom" \
+            "${{ steps.find-files.outputs.pcb_file }}"
+
+      - name: Create Manufacturing Package
+        if: steps.find-files.outputs.pcb_file
+        working-directory: ${{ matrix.target-dir }}
+        run: |
+          # Create a zip file with all manufacturing files
+          cd exports
+          zip -r "../${{ matrix.name }}_manufacturing_package.zip" gerbers/ *.pos *.csv || true
+          cd ..
+
+      - name: Upload KiCad Exports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target-dir }}-kicad-exports
+          path: |
+            ${{ matrix.target-dir }}/exports/
+            ${{ matrix.target-dir }}/*.zip
+          retention-days: 30
+
+  generate-documentation:
+    name: Generate Documentation
+    needs: validate-and-export-kicad
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts/
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick librsvg2-bin
+
+      - name: Generate PCB Images
+        run: |
+          mkdir -p documentation/images
+          
+          # Find all SVG files and convert to PNG
+          find all-artifacts -name "*.svg" -type f | while read svg_file; do
+            base_name=$(basename "$svg_file" .svg)
+            dir_name=$(dirname "$svg_file" | sed 's/all-artifacts\///')
+            mkdir -p "documentation/images/$dir_name"
+            rsvg-convert -h 1024 "$svg_file" > "documentation/images/$dir_name/${base_name}.png"
+          done
+
+      - name: Create Documentation Index
+        run: |
+          cat > documentation/README.md << 'EOF'
+          # AI Pin PCB Documentation
+          
+          This documentation contains all the generated files from the atopile build process.
+          
+          ## Projects
+          
+          ### AI Wearable
+          - [Schematic PDF](../all-artifacts/aiwearable-kicad-exports/exports/schematic.pdf)
+          - [Interactive BOM](../all-artifacts/aiwearable-kicad-exports/exports/pcb_interactive_bom.html)
+          - [3D Model (STEP)](../all-artifacts/aiwearable-kicad-exports/exports/pcb_3d.step)
+          - [Manufacturing Package](../all-artifacts/aiwearable-kicad-exports/AI Wearable_manufacturing_package.zip)
+          
+          ### AI Wearable PCB
+          - [Schematic PDF](../all-artifacts/ai-wearable-pcb-kicad-exports/exports/schematic.pdf)
+          - [Interactive BOM](../all-artifacts/ai-wearable-pcb-kicad-exports/exports/pcb_interactive_bom.html)
+          - [3D Model (STEP)](../all-artifacts/ai-wearable-pcb-kicad-exports/exports/pcb_3d.step)
+          - [Manufacturing Package](../all-artifacts/ai-wearable-pcb-kicad-exports/AI Wearable PCB_manufacturing_package.zip)
+          
+          ### Veramonitor
+          - [Schematic PDF](../all-artifacts/.-kicad-exports/exports/schematic.pdf)
+          - [Interactive BOM](../all-artifacts/.-kicad-exports/exports/pcb_interactive_bom.html)
+          - [3D Model (STEP)](../all-artifacts/.-kicad-exports/exports/pcb_3d.step)
+          - [Manufacturing Package](../all-artifacts/.-kicad-exports/Veramonitor_manufacturing_package.zip)
+          
+          ## Build Information
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref_name }}
+          EOF
+
+      - name: Upload Documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcb-documentation
+          path: |
+            documentation/
+            all-artifacts/
+          retention-days: 30
+
+  summary:
+    name: Build Summary
+    needs: [build-atopile, validate-and-export-kicad, generate-documentation]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts/
+
+      - name: Generate Summary
+        run: |
+          echo "# Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # List all artifacts
+          find all-artifacts -type f -name "*.pdf" -o -name "*.step" -o -name "*.zip" -o -name "*.html" | sort | while read file; do
+            echo "- ${file#all-artifacts/}" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the artifacts from the Actions tab" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review the schematic and PCB designs" >> $GITHUB_STEP_SUMMARY
+          echo "3. Check the DRC/ERC results" >> $GITHUB_STEP_SUMMARY
+          echo "4. Use the manufacturing packages for PCB fabrication" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,312 @@
+# KiBot configuration for AI Pin PCB projects
+# This configuration generates comprehensive documentation and manufacturing files
+
+kibot:
+  version: 1
+
+global:
+  # Filters for ERC/DRC warnings
+  filters:
+    - filter: 'Ignore power pins'
+      error: 'power_pin_not_driven'
+      regex: '.*'
+    - filter: 'Ignore unconnected pins'
+      error: 'pin_not_connected'
+      regex: 'TestPoint.*'
+
+# Preflight checks
+preflight:
+  run_erc: true
+  run_drc: true
+  check_zone_fills: true
+  ignore_unconnected: false
+
+# Define PCB variants if needed
+variants:
+  - name: 'default'
+    comment: 'Default variant'
+    type: kibom
+
+outputs:
+  # Schematic outputs
+  - name: 'print_sch'
+    comment: 'Schematic PDF'
+    type: pdf_sch_print
+    dir: 'docs'
+    options:
+      output: '%f-schematic-%r.%x'
+
+  - name: 'print_sch_svg'
+    comment: 'Schematic SVG for web'
+    type: svg_sch_print
+    dir: 'docs/images'
+
+  # PCB 2D renders
+  - name: 'pcb_top_r'
+    comment: 'PCB render top'
+    type: pcbdraw
+    dir: 'docs/images'
+    options:
+      format: png
+      style: set-blue-enig
+      show_components: all
+      dpi: 600
+
+  - name: 'pcb_bottom_r'
+    comment: 'PCB render bottom'
+    type: pcbdraw
+    dir: 'docs/images'
+    options:
+      format: png
+      style: set-blue-enig
+      bottom: true
+      show_components: all
+      dpi: 600
+
+  # 3D render
+  - name: '3d_render'
+    comment: '3D render in STEP format'
+    type: step
+    dir: '3d'
+    options:
+      download: true
+      no_virtual: true
+
+  # Interactive BOM
+  - name: 'ibom'
+    comment: 'Interactive BOM'
+    type: ibom
+    dir: 'assembly'
+    options:
+      dark_mode: false
+      hide_pads: false
+      show_fabrication: true
+      hide_silkscreen: false
+      highlight_pin1: true
+      no_redraw_on_drag: true
+      board_rotation: 0
+      checkboxes: 'Sourced,Placed'
+      include_tracks: true
+      include_nets: true
+      sort_order: 'C,R,L,D,U,Y,X,F,SW,A,~,HS,CNN,J,P,NT,MH'
+      no_blacklist_virtual: false
+      blacklist_empty_val: false
+      extra_fields: 'LCSC Part,MPN'
+      normalize_field_case: true
+      name_format: '%f_ibom'
+
+  # BOM in multiple formats
+  - name: 'bom_html'
+    comment: 'Bill of Materials in HTML'
+    type: bom
+    dir: 'assembly'
+    options:
+      output: '%f_bom.%x'
+      html:
+        datasheet_as_link: true
+        digikey_link: true
+        highlight_empty: true
+
+  - name: 'bom_csv'
+    comment: 'Bill of Materials in CSV'
+    type: bom
+    dir: 'assembly'
+    options:
+      output: '%f_bom.%x'
+      csv:
+        hide_pcb_info: false
+        hide_stats_info: false
+        quote_all: true
+
+  # Gerbers
+  - name: 'gerbers'
+    comment: 'Gerbers for manufacturing'
+    type: gerber
+    dir: 'gerbers'
+    layers:
+      - copper
+      - F.SilkS
+      - B.SilkS
+      - F.Mask
+      - B.Mask
+      - F.Paste
+      - B.Paste
+      - F.Fab
+      - B.Fab
+      - Edge.Cuts
+    options:
+      exclude_edge_layer: false
+      exclude_pads_from_silkscreen: true
+      plot_sheet_reference: false
+      plot_footprint_refs: true
+      plot_footprint_values: false
+      force_plot_invisible_refs_vals: false
+      tent_vias: true
+      use_protel_extensions: true
+      create_gerber_job_file: true
+      disable_aperture_macros: false
+      gerber_precision: 4.6
+      use_gerber_x2_attributes: true
+      use_gerber_net_attributes: true
+      line_width: 0.1
+      subtract_mask_from_silk: true
+
+  # Drill files
+  - name: 'drill'
+    comment: 'Drill files'
+    type: excellon
+    dir: 'gerbers'
+    options:
+      pth_and_npth_single_file: false
+      pth_id: '-PTH'
+      npth_id: '-NPTH'
+      metric_units: true
+      map:
+        type: pdf
+      output: "%f%i.%x"
+
+  # Position file
+  - name: 'position'
+    comment: 'Pick and place file'
+    type: position
+    dir: 'assembly'
+    options:
+      format: CSV
+      units: millimeters
+      separate_files_for_front_and_back: false
+      only_smd: false
+
+  # JLCPCB files
+  - name: 'jlcpcb_gerbers'
+    comment: 'JLCPCB Gerbers'
+    type: compress
+    dir: 'jlcpcb'
+    options:
+      output: '%f_jlcpcb.%x'
+      files:
+        - from_output: gerbers
+          dest: /
+          filter: '*.gb*'
+        - from_output: gerbers
+          dest: /
+          filter: '*.drl'
+        - from_output: drill
+          dest: /
+          filter: '*.drl'
+
+  - name: 'jlcpcb_bom'
+    comment: 'JLCPCB BOM'
+    type: bom
+    dir: 'jlcpcb'
+    options:
+      output: '%f_bom_jlcpcb.%x'
+      ref_separator: ','
+      columns:
+        - field: Value
+          name: Comment
+        - field: References
+          name: Designator
+        - Footprint
+        - field: 'LCSC Part'
+          name: 'LCSC Part #'
+      csv:
+        hide_pcb_info: true
+        hide_stats_info: true
+        quote_all: true
+
+  - name: 'jlcpcb_position'
+    comment: 'JLCPCB CPL'
+    type: position
+    dir: 'jlcpcb'
+    options:
+      output: '%f_cpl_jlcpcb.%x'
+      format: CSV
+      units: millimeters
+      separate_files_for_front_and_back: false
+      only_smd: false
+      columns:
+        - id: Ref
+          name: Designator
+        - Val
+        - Package
+        - id: PosX
+          name: "Mid X"
+        - id: PosY
+          name: "Mid Y"
+        - id: Rot
+          name: Rotation
+        - id: Side
+          name: Layer
+
+  # PCBWay files
+  - name: 'pcbway'
+    comment: 'PCBWay Gerbers'
+    type: compress
+    dir: 'pcbway'
+    options:
+      output: '%f_pcbway.%x'
+      files:
+        - from_output: gerbers
+          dest: /
+        - from_output: drill
+          dest: /
+
+  # Assembly documentation
+  - name: 'pcb_top_assembly'
+    comment: 'PCB top assembly'
+    type: pcb_print
+    dir: 'assembly'
+    options:
+      format: PDF
+      force_edge_cuts: true
+      keep_temporal_files: false
+      title: 'Top Assembly'
+      pages:
+        - layers:
+          - layer: F.Fab
+            description: 'Fabrication top'
+          - layer: F.CrtYd
+            description: 'Courtyard top'
+          sheet: 'Top Assembly'
+
+  - name: 'pcb_bottom_assembly'
+    comment: 'PCB bottom assembly'
+    type: pcb_print
+    dir: 'assembly'
+    options:
+      format: PDF
+      force_edge_cuts: true
+      keep_temporal_files: false
+      title: 'Bottom Assembly'
+      pages:
+        - layers:
+          - layer: B.Fab
+            description: 'Fabrication bottom'
+          - layer: B.CrtYd
+            description: 'Courtyard bottom'
+          sheet: 'Bottom Assembly'
+          mirror: true
+
+  # Fabrication drawing
+  - name: 'fab_drawing'
+    comment: 'Fabrication drawing'
+    type: pdf_pcb_print
+    dir: 'docs'
+    options:
+      output: '%f-fab.%x'
+      pages:
+        - layers:
+          - layer: F.Fab
+            description: 'Front fabrication'
+          - layer: Edge.Cuts
+            description: 'Board outline'
+          sheet: 'Fabrication'
+
+  # Report
+  - name: 'report'
+    comment: 'Project report'
+    type: report
+    dir: 'docs'
+    options:
+      output: '%f_report.%x'
+      template: 'full'
