@@ -1,147 +1,145 @@
-# AI Wearable PCB - Ultra-Compact Design
+# AI Wearable Dev Board (30mm × 30mm)
 
-## 🎯 Project Overview
+This is an ultra-compact AI wearable development board designed for smart glasses, body cameras, and other wearable AI applications.
 
-This project delivers an ultra-compact AI wearable PCB design that meets all specified requirements:
+## Features
 
-- **Size**: 25mm × 28mm (within the 30mm × 30mm requirement)
-- **MCU**: nRF52840 - More power-efficient than ESP32, Arduino IDE compatible
-- **Features**: Camera, microphone, speaker, eSIM cellular connectivity
-- **Power**: 8+ hours battery life with smart power management
-- **Manufacturing**: JLCPCB-ready with all components available
+### Main Components
 
-## 📁 Project Structure
+1. **MCU**: ESP32-S3-MINI-1 (LCSC: C2980299)
+   - Dual-core Xtensa LX7 @ 240MHz
+   - Wi-Fi 802.11 b/g/n
+   - Bluetooth 5.0 (LE)
+   - Camera interface support
+   - AI acceleration capabilities
 
+2. **Cellular Module**: SIM7080G (LCSC: C2943992)
+   - LTE Cat-M1/NB-IoT
+   - eSIM support via Nano SIM holder
+   - Global band support
+   - Low power consumption
+
+3. **Camera**: OV2640
+   - 2MP resolution
+   - Wide FOV lens
+   - Privacy LED indicator (red)
+   - I2C control interface
+
+4. **Audio**:
+   - PDM Digital MEMS Microphone
+   - MAX98357A I2S Audio Amplifier
+   - 8Ω Speaker support
+   - Recording LED indicator (orange)
+
+5. **Power Management**:
+   - USB-C connector with proper CC resistors (5.1kΩ)
+   - BQ24074 LiPo battery charger (or similar)
+   - TPS62840 ultra-low Iq buck regulator (3.3V)
+   - BQ27441 fuel gauge
+   - 400-600mAh LiPo battery support
+   - NTC thermistor for battery temperature monitoring
+
+6. **User Interface**:
+   - Large "Query" button (6×6mm)
+   - Reset button (3×3mm)
+   - Boot button (3×3mm)
+   - Slide power switch
+   - Status LEDs:
+     - Red: 5V USB power present
+     - Green: 3.3V rail active
+     - Blue: GPIO-controlled status
+     - Orange: Recording active
+     - Red: Camera privacy indicator
+
+7. **Connectivity**:
+   - USB-C for charging and data
+   - QWIIC/I2C connector (JST-SH 4-pin)
+   - Chip antenna for cellular
+
+## Board Specifications
+
+- **Size**: 30mm × 30mm (4-layer PCB recommended)
+- **Component Size**: 0603 for all passive components
+- **Power Input**: 5V via USB-C
+- **Battery Voltage**: 3.7V nominal (LiPo)
+- **System Voltage**: 3.3V
+- **Current Consumption**: 
+  - Sleep: <1mA
+  - Active: ~200-500mA (depending on cellular/camera usage)
+
+## Pin Connections
+
+### ESP32-S3 Key Connections:
+- **USB**: D+ and D- connected to USB-C with proper routing
+- **Camera**: DVP interface (8-bit data + control signals)
+- **Audio**: I2S interface to MAX98357A
+- **Microphone**: PDM interface
+- **Cellular**: UART interface to SIM7080G
+- **I2C**: Shared bus for camera control, fuel gauge, and QWIIC connector
+- **GPIO**: Status LEDs, button inputs, enable signals
+
+### Protection Features:
+- ESD protection on USB data lines
+- RC circuits on MCU EN/RESET pins
+- Proper bypass capacitors on all power rails
+- Pull-up resistors on I2C bus (4.7kΩ)
+
+## Assembly Notes
+
+1. Place all 0603 components first
+2. Ensure proper orientation of polarized components (LEDs, capacitors)
+3. USB-C connector requires careful soldering
+4. Battery should be mounted on the back of the PCB
+5. Speaker can be connected via wire leads or pogo pins
+
+## Software Support
+
+The board is compatible with:
+- Arduino IDE (ESP32 board package)
+- ESP-IDF
+- MicroPython
+- CircuitPython
+
+## Safety Considerations
+
+- Battery charging is temperature monitored via NTC
+- Overcurrent protection in charger IC
+- Thermal regulation in buck converter
+- Short-circuit protection on all outputs
+
+## Applications
+
+- Smart glasses
+- Body cameras
+- Health monitoring devices
+- Asset tracking
+- Environmental sensing
+- AI-powered wearables
+- Solar-powered devices (with appropriate input protection)
+
+## LCSC Part Numbers Summary
+
+- ESP32-S3-MINI-1: C2980299
+- SIM7080G: C2943992
+- BQ27441 (Fuel Gauge): C139621
+- Nano SIM Holder: C2895022
+- 0603 Resistors: Various values
+- 0603 Capacitors: Various values
+- LEDs (0603): Red, Green, Blue, Orange
+
+## Design Files
+
+- `main.ato`: Atopile hardware description
+- `ato.yaml`: Project configuration
+- Build outputs in `build/` directory
+
+## Building
+
+To build the project:
+```bash
+python3 -m atopile build
 ```
-ai-wearable-pcb/
-├── ato.yaml                  # Atopile project configuration
-├── main.ato                  # Original full-featured design
-├── main_compact.ato          # Optimized compact design
-├── design_summary.md         # Detailed component selection and power analysis
-├── kicad_project/
-│   ├── ai_wearable.kicad_pro # KiCad project file
-│   ├── ai_wearable.kicad_sch # Schematic file
-│   └── ai_wearable.kicad_pcb # PCB layout file
-└── README.md                 # This file
-```
 
-## 🔧 Key Components
+## License
 
-### Core Components
-- **MCU**: nRF52840-QIAA-R (JLCPCB: C190794)
-  - Ultra-low power ARM Cortex-M4F
-  - Built-in BLE 5.0
-  - Arduino IDE support
-  
-- **Camera**: OV7675 or similar ultra-compact module
-  - VGA resolution with high FOV
-  - SPI interface for fast data transfer
-  
-- **Microphone**: ICS-41350 MEMS
-  - PDM output, always-on recording
-  - 650µA power consumption
-  
-- **Speaker**: 5mm piezo + PAM8302A amplifier
-  - Clear AI response playback
-  
-- **Cellular**: SIM7080G
-  - LTE-M/NB-IoT with integrated eSIM
-  - Global coverage
-  
-- **Power**: BQ25125 PMIC
-  - Integrated battery charger
-  - Dual LDO outputs
-
-## 💡 Design Highlights
-
-1. **Ultra-Low Power Design**
-   - Average power consumption: ~3.37mA
-   - Estimated battery life: 59 hours with 200mAh battery
-   - Smart power management with sleep modes
-
-2. **Compact Form Factor**
-   - 4-layer PCB design
-   - 0201 passives for size optimization
-   - All components on top side
-
-3. **Manufacturing Ready**
-   - All components available on JLCPCB
-   - Standard SMT assembly process
-   - Magnetic charging pads for easy assembly
-
-## 🚀 Getting Started
-
-### Hardware Assembly
-1. Order PCB from JLCPCB using provided Gerber files
-2. Order components using the BOM (all available on JLCPCB)
-3. Use JLCPCB SMT assembly service for automated assembly
-4. Manual assembly required only for:
-   - Camera module (if not in SMT library)
-   - Magnetic charging pads
-
-### Software Development
-```cpp
-// Arduino IDE setup
-// 1. Install Adafruit nRF52 board package
-// 2. Select "Nordic nRF52840 DK" as board
-// 3. Use this basic structure:
-
-void setup() {
-  // Initialize peripherals
-  setupCamera();     // SPI interface
-  setupMicrophone(); // PDM interface
-  setupCellular();   // UART AT commands
-  setupPowerMgmt();  // I2C control
-}
-
-void loop() {
-  if (timeToCapture()) {
-    captureImage();
-    sendToCloud();
-  }
-  processAudio();
-  enterLowPowerMode();
-}
-```
-
-## 📊 Performance Specifications
-
-- **Image Capture**: Every 20 seconds, VGA JPEG (~50KB)
-- **Audio**: Continuous recording at 8kHz mono
-- **Data Usage**: ~20MB/hour
-- **Response Time**: 2-5 seconds for AI responses
-- **Operating Time**: 8+ hours per charge
-
-## 🔌 Interfaces
-
-- **Charging**: Magnetic pads (no wear, waterproof potential)
-- **Programming**: USB-C or SWD debug interface
-- **Wireless**: BLE 5.0 for optional smartphone connectivity
-- **Cellular**: Global LTE-M/NB-IoT coverage
-
-## 📈 Future Enhancements
-
-1. Add IMU for motion detection and power optimization
-2. Implement edge AI for basic on-device processing
-3. Add haptic feedback for notifications
-4. Waterproof enclosure design
-5. Flexible PCB version for better wearability
-
-## 🛠️ Tools Required
-
-- **Design**: Atopile framework (optional)
-- **PCB Design**: KiCad 6.0 or later
-- **Programming**: Arduino IDE with nRF52 support
-- **Manufacturing**: JLCPCB account
-
-## 📝 License
-
-This project is provided under the MIT License. Feel free to use, modify, and distribute.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for improvements.
-
----
-
-**Note**: This design prioritizes size and power efficiency while maintaining all required functionality. The modular Atopile design allows easy customization for specific use cases.
+This project is open source hardware. Feel free to modify and use for your projects.
