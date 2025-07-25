@@ -6,6 +6,9 @@ echo "=== Applying atopile/faebryk fixes ==="
 # Disable telemetry
 export ATOPILE_TELEMETRY=false
 export DO_NOT_TRACK=1
+
+# Ensure Python can import our sitecustomize patch (located in repo root)
+export PYTHONPATH="/github/workspace:${PYTHONPATH}"
 mkdir -p ~/.config/atopile
 cat > ~/.config/atopile/config.yaml << EOF
 telemetry: false
