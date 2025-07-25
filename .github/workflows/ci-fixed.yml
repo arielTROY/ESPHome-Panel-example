@@ -35,51 +35,52 @@ jobs:
               
               # Alternative inline fix for the telemetry issue
               echo "=== Applying inline telemetry fix ==="
-              python3 -c "
+              cat > /tmp/fix_inline.py << '\''EOF'\''
 import os
 import glob
 import re
 
 # Find and patch telemetry.py
-telemetry_files = glob.glob(\"/root/.local/share/uv/tools/atopile/lib/python*/site-packages/atopile/telemetry.py\")
+telemetry_files = glob.glob("/root/.local/share/uv/tools/atopile/lib/python*/site-packages/atopile/telemetry.py")
 for tf in telemetry_files:
     if os.path.exists(tf):
-        with open(tf, \"r\") as f:
+        with open(tf, "r") as f:
             content = f.read()
         
         # Add asdict import
-        if \"from dataclasses import\" not in content:
-            content = \"from dataclasses import asdict\\n\" + content
+        if "from dataclasses import" not in content:
+            content = "from dataclasses import asdict\n" + content
         
         # Fix yaml.dump call
         content = re.sub(
-            r\"yaml\\.dump\\(config,\\s*f\\)\",
-            \"yaml.dump(asdict(config) if hasattr(config, \\\"__dataclass_fields__\\\") else config, f)\",
+            r"yaml\.dump\(config,\s*f\)",
+            "yaml.dump(asdict(config) if hasattr(config, \"__dataclass_fields__\") else config, f)",
             content
         )
         
-        with open(tf, \"w\") as f:
+        with open(tf, "w") as f:
             f.write(content)
-        print(f\"Patched {tf}\")
+        print(f"Patched {tf}")
 
 # Find and patch dependencies.py
-deps_files = glob.glob(\"/root/.local/share/uv/tools/atopile/lib/python*/site-packages/faebryk/libs/project/dependencies.py\")
+deps_files = glob.glob("/root/.local/share/uv/tools/atopile/lib/python*/site-packages/faebryk/libs/project/dependencies.py")
 for df in deps_files:
     if os.path.exists(df):
-        with open(df, \"r\") as f:
+        with open(df, "r") as f:
             content = f.read()
         
         # Fix error message handling
         content = re.sub(
-            r\"(\\w+)\\.message\\b\",
-            r\"getattr(\\1, \\\"message\\\", getattr(\\1, \\\"error\\\", str(\\1)))\",
+            r"(\w+)\.message\b",
+            r"getattr(\1, \"message\", getattr(\1, \"error\", str(\1)))",
             content
         )
         
-        with open(df, \"w\") as f:
+        with open(df, "w") as f:
             f.write(content)
-        print(f\"Patched {df}\")
-"
+        print(f"Patched {df}")
+EOF
+              python3 /tmp/fix_inline.py
               
               echo "=== Running atopile install ==="
               atopile install || {
