@@ -20,6 +20,9 @@ jobs:
     strategy:
       matrix:
         target-dir: [ "aiwearable", "ai-wearable-pcb" ]
+    env:
+      # Disable the interactive first-run wizard so `ato build` never blocks in CI
+      ATO_CI: "1"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
