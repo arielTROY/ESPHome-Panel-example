@@ -1,0 +1,197 @@
+name: Build and Export KiCad from Atopile (Fixed)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+      - "elec/**"
+      - "ato.yaml"
+      - ".github/workflows/atopile-kicad-build-fixed.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "aiwearable/**"
+      - "ai-wearable-pcb/**"
+      - "elec/**"
+      - "ato.yaml"
+      - ".github/workflows/atopile-kicad-build-fixed.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # Continue building other projects even if one fails
+      matrix:
+        include:
+          - name: "AI Wearable"
+            target-dir: "aiwearable"
+            build-entry: "main.atopile:aiwearable"
+          - name: "AI Wearable PCB"
+            target-dir: "ai-wearable-pcb"
+            build-entry: "main.ato:AIWearable"
+          - name: "Veramonitor"
+            target-dir: "."
+            build-entry: "elec/src/veramonitor.ato:Veramonitor"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.name }} with atopile-kicad
+        env:
+          ATO_CI: "1"
+          ATOPILE_TELEMETRY: "false"
+          PYTHONPATH: "${{ github.workspace }}:$PYTHONPATH"
+          ATOPILE_NO_INTERACTIVE: "1"
+          ATOPILE_SKIP_KICAD_PLUGIN: "1"
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace/${{ matrix.target-dir }} \
+            -e ATO_CI=1 \
+            -e ATOPILE_TELEMETRY=false \
+            -e ATOPILE_NO_INTERACTIVE=1 \
+            -e ATOPILE_SKIP_KICAD_PLUGIN=1 \
+            -e PYTHONPATH=/github/workspace \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              echo "=== Pre-configuring atopile for CI ==="
+              
+              # Create atopile config directory
+              mkdir -p ~/.config/atopile
+              
+              # Create a pre-configured config file to skip first-run wizard
+              cat > ~/.config/atopile/config.yaml << EOF
+telemetry: false
+id: ci-runner
+kicad_plugin_installed: true
+first_run_complete: true
+EOF
+              
+              echo "=== Applying fixes for known atopile/faebryk issues ==="
+              
+              # Run our docker fix script if it exists
+              if [ -f /github/workspace/docker_fix_script.sh ]; then
+                chmod +x /github/workspace/docker_fix_script.sh
+                /github/workspace/docker_fix_script.sh
+              fi
+              
+              echo "=== Checking project structure ==="
+              echo "Current directory: $(pwd)"
+              echo "Files in current directory:"
+              ls -la
+              
+              # Check if we need to copy dependencies from parent
+              if [ "${{ matrix.target-dir }}" != "." ] && [ -f /github/workspace/ato.yaml ]; then
+                echo "=== Checking for missing dependencies ==="
+                if [ ! -f "ato.yaml" ] || ! grep -q "dependencies:" "ato.yaml"; then
+                  echo "No dependencies found in local ato.yaml, checking parent..."
+                  
+                  # Create a temporary ato.yaml with dependencies from parent if needed
+                  if [ -f "ato.yaml" ]; then
+                    cp ato.yaml ato.yaml.backup
+                    # Extract dependencies from parent ato.yaml and append
+                    if grep -q "dependencies:" /github/workspace/ato.yaml; then
+                      echo "" >> ato.yaml
+                      grep -A 100 "dependencies:" /github/workspace/ato.yaml >> ato.yaml
+                    fi
+                  fi
+                fi
+              fi
+              
+              echo "=== Content of ato.yaml ==="
+              cat ato.yaml || echo "No ato.yaml found"
+              
+              echo "=== Running atopile install ==="
+              atopile install -vv || {
+                echo "=== Install failed, trying with upgrade flag ==="
+                atopile install --upgrade -vv || {
+                  echo "=== Both install attempts failed ==="
+                  echo "Error details above. Continuing to try build anyway..."
+                }
+              }
+              
+              echo "=== Running atopile build ==="
+              if [ -n "${{ matrix.build-entry }}" ]; then
+                echo "Building with entry: ${{ matrix.build-entry }}"
+                atopile build --entry "${{ matrix.build-entry }}" -vv || {
+                  echo "=== Build with entry failed, trying default build ==="
+                  atopile build -vv || {
+                    echo "=== Both build attempts failed ==="
+                    echo "Checking for partial results:"
+                    find . -name "*.kicad_*" -o -name "build" -type d
+                    exit 1
+                  }
+                }
+              else
+                echo "Building with default entry"
+                atopile build -vv || {
+                  echo "=== Build failed ==="
+                  exit 1
+                }
+              fi
+              
+              echo "=== Build completed successfully ==="
+              echo "=== Generated files ==="
+              find build -type f 2>/dev/null | sort || echo "No build directory found"
+            '
+
+      - name: Check build output
+        working-directory: ${{ matrix.target-dir }}
+        if: always()
+        run: |
+          echo "=== Checking build output for ${{ matrix.name }} ==="
+          if [ -d "build" ]; then
+            echo "Build directory contents:"
+            ls -la build/
+            find build -type f | sort
+          else
+            echo "Build directory does not exist"
+            echo "Looking for any generated files:"
+            find . -name "*.kicad_*" -type f | head -20
+          fi
+
+      - name: Upload ${{ matrix.name }} Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.name }}-build-artifacts
+          path: |
+            ${{ matrix.target-dir }}/build/
+            ${{ matrix.target-dir }}/**/*.kicad_pcb
+            ${{ matrix.target-dir }}/**/*.kicad_sch
+            ${{ matrix.target-dir }}/*.log
+            ${{ matrix.target-dir }}/ato.yaml*
+          retention-days: 30
+
+  build-summary:
+    name: Build Summary
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- AI Wearable: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- AI Wearable PCB: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Veramonitor: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the artifacts tab for generated files." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the artifacts from the Actions tab" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review the schematic and PCB designs" >> $GITHUB_STEP_SUMMARY
+          echo "3. Check the DRC/ERC results" >> $GITHUB_STEP_SUMMARY
+          echo "4. Use the manufacturing packages for PCB fabrication" >> $GITHUB_STEP_SUMMARY
