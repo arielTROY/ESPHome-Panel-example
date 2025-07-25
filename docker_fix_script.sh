@@ -7,8 +7,31 @@ echo "=== Applying atopile/faebryk fixes ==="
 export ATOPILE_TELEMETRY=false
 export DO_NOT_TRACK=1
 
+# Pre-configure atopile to skip interactive prompts
+export ATOPILE_NO_INTERACTIVE=1
+export ATOPILE_SKIP_KICAD_PLUGIN=1
+export ATO_CI=1
+
 # Ensure Python can import our sitecustomize patch (located in repo root)
 export PYTHONPATH="/github/workspace:${PYTHONPATH}"
+
+# -----------------------------------------------------------------------------
+# Pre-configure atopile to avoid first-run wizard and KiCAD plugin prompt
+# -----------------------------------------------------------------------------
+echo "=== Pre-configuring atopile ==="
+mkdir -p ~/.config/atopile
+
+# Create a complete config file that marks first run as complete
+cat > ~/.config/atopile/config.yaml << EOF
+telemetry: false
+id: ci-runner-$(uuidgen || echo "disabled")
+kicad_plugin_installed: true
+first_run_complete: true
+analytics_enabled: false
+EOF
+
+# Also create the atopile cache directory to avoid any initialization issues
+mkdir -p ~/.cache/atopile
 
 # -----------------------------------------------------------------------------
 # Copy sitecustomize.py into every uv-managed site-packages directory so that it
@@ -27,10 +50,14 @@ fi
 
 # Continue with telemetry config pre-seed so TelemetryConfig.load() never tries
 # to write the file (avoids dataclass serialisation path entirely).
+# This is redundant with the above but kept for compatibility
 mkdir -p ~/.config/atopile
 cat > ~/.config/atopile/config.yaml << EOF
 telemetry: false
-id: disabled
+id: ci-runner-disabled
+kicad_plugin_installed: true
+first_run_complete: true
+analytics_enabled: false
 EOF
 
 # Find and patch the dependencies.py file
