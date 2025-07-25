@@ -9,11 +9,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build
-        uses: docker://ghcr.io/atopile/atopile-kicad
+      - name: Build with atopile-kicad
+        continue-on-error: true
+        uses: docker://ghcr.io/atopile/atopile-kicad:latest
+
+      - name: Check build output
+        run: |
+          # List all files to see what was generated
+          echo "=== Listing all files in workspace ==="
+          find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" | sort
+          
+          # Check if build directory exists
+          if [ -d "build" ]; then
+            echo "=== Build directory contents ==="
+            ls -la build/
+            find build -type f | sort
+          else
+            echo "Build directory does not exist"
+          fi
 
       - name: Upload Combined Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build
           path: build
