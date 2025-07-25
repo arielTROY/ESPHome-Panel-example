@@ -1,6 +1,10 @@
+name: CI Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -13,24 +17,52 @@ jobs:
       - name: Build with atopile-kicad
         env:
           ATO_CI: "1"
+          ATOPILE_TELEMETRY: "false"
         continue-on-error: true
-        uses: docker://ghcr.io/atopile/atopile-kicad:latest
-        with:
-          entrypoint: /bin/bash
-          args: |
-            -c "
-            # First, run the fix script to patch known issues
-            python3 /github/workspace/fix_atopile_errors.py || true
-            
-            # Then run the atopile install command
-            atopile install
-            "
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            -e ATOPILE_TELEMETRY=false \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              echo "=== Applying fixes for known atopile/faebryk issues ==="
+              
+              # Run our comprehensive inline fix
+              python3 inline_fix.py
+              
+              echo "=== Running atopile install ==="
+              atopile install || {
+                echo "=== Install failed, trying alternative approaches ==="
+                
+                # Try with upgrade flag
+                echo "Trying with --upgrade flag..."
+                atopile install --upgrade || {
+                  echo "=== Both install attempts failed ==="
+                  echo "Listing workspace contents for debugging:"
+                  ls -la /github/workspace/
+                  echo "Checking ato.yaml:"
+                  cat /github/workspace/ato.yaml || echo "No ato.yaml found"
+                  exit 1
+                }
+              }
+              
+              echo "=== Running atopile build ==="
+              atopile build || {
+                echo "=== Build failed, checking for partial results ==="
+                find /github/workspace -name "*.kicad_*" -o -name "build" -type d
+                exit 1
+              }
+              
+              echo "=== Build completed successfully ==="
+            '
 
       - name: Check build output
         run: |
           # List all files to see what was generated
           echo "=== Listing all files in workspace ==="
-          find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" | sort
+          find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" -o -name "*.kicad_*" -o -name "*.pdf" | sort
           
           # Check if build directory exists
           if [ -d "build" ]; then
@@ -40,10 +72,21 @@ jobs:
           else
             echo "Build directory does not exist"
           fi
+          
+          # Check for any KiCad files generated
+          echo "=== Looking for KiCad files ==="
+          find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | sort
 
       - name: Upload Combined Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build
-          path: build
+          name: build-artifacts
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
+            **/*.pdf

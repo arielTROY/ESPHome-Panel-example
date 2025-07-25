@@ -1,0 +1,23 @@
+FROM ghcr.io/atopile/atopile-kicad:latest
+
+# Copy the fix script into the container
+COPY docker_fix_atopile.py /tmp/docker_fix_atopile.py
+
+# Make it executable
+RUN chmod +x /tmp/docker_fix_atopile.py
+
+# Run the fix script to patch the atopile/faebryk installation
+RUN python3 /tmp/docker_fix_atopile.py
+
+# Create telemetry config to disable telemetry
+RUN mkdir -p /root/.config/atopile && \
+    echo "telemetry: false" > /root/.config/atopile/config.yaml
+
+# Set environment variable to disable telemetry
+ENV ATOPILE_TELEMETRY=false
+
+# Clean up
+RUN rm /tmp/docker_fix_atopile.py
+
+# Set working directory
+WORKDIR /github/workspace

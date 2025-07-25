@@ -1,0 +1,95 @@
+name: Build with Fixed Atopile Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-fixed-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build fixed atopile image
+        id: build
+        run: |
+          IMAGE_TAG="atopile-fixed:$(date +%s)"
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          
+          docker build -f Dockerfile.fixed -t $IMAGE_TAG .
+          echo "Built image: $IMAGE_TAG"
+
+  build-project:
+    runs-on: ubuntu-latest
+    needs: build-fixed-image
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build with fixed atopile image
+        env:
+          ATO_CI: "1"
+          ATOPILE_TELEMETRY: "false"
+        run: |
+          echo "Using fixed image: ${{ needs.build-fixed-image.outputs.image-tag }}"
+          
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            -e ATOPILE_TELEMETRY=false \
+            ${{ needs.build-fixed-image.outputs.image-tag }} \
+            bash -c '
+              echo "=== Environment info ==="
+              python3 --version
+              which atopile || echo "atopile not in PATH"
+              
+              echo "=== Checking for telemetry config ==="
+              ls -la ~/.config/atopile/ || echo "No config directory"
+              cat ~/.config/atopile/config.yaml || echo "No config file"
+              
+              echo "=== Running atopile install ==="
+              atopile install
+              
+              echo "=== Running atopile build ==="
+              atopile build
+              
+              echo "=== Build completed successfully ==="
+            '
+
+      - name: Check build output
+        run: |
+          echo "=== Listing all generated files ==="
+          find . -type f \( -name "*.zip" -o -name "*.csv" -o -name "*.pos" -o -name "*.kicad_*" -o -name "*.pdf" \) | sort
+          
+          if [ -d "build" ]; then
+            echo "=== Build directory contents ==="
+            ls -la build/
+            find build -type f | sort
+          else
+            echo "Build directory does not exist"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: atopile-build-artifacts
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
+            **/*.pdf
