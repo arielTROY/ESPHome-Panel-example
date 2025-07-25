@@ -1,0 +1,126 @@
+name: CI Build (Fixed)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - izzymonitor
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build with atopile-kicad (with fixes)
+        env:
+          ATO_CI: "1"
+        run: |
+          # Run the Docker container with our fix script
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              echo "=== Applying fixes for known atopile/faebryk issues ==="
+              
+              # Run the fix script
+              if [ -f "fix_atopile_errors.py" ]; then
+                python3 fix_atopile_errors.py || echo "Fix script failed, continuing anyway"
+              fi
+              
+              # Alternative inline fix for the telemetry issue
+              echo "=== Applying inline telemetry fix ==="
+              python3 -c "
+import os
+import glob
+import re
+
+# Find and patch telemetry.py
+telemetry_files = glob.glob(\"/root/.local/share/uv/tools/atopile/lib/python*/site-packages/atopile/telemetry.py\")
+for tf in telemetry_files:
+    if os.path.exists(tf):
+        with open(tf, \"r\") as f:
+            content = f.read()
+        
+        # Add asdict import
+        if \"from dataclasses import\" not in content:
+            content = \"from dataclasses import asdict\\n\" + content
+        
+        # Fix yaml.dump call
+        content = re.sub(
+            r\"yaml\\.dump\\(config,\\s*f\\)\",
+            \"yaml.dump(asdict(config) if hasattr(config, \\\"__dataclass_fields__\\\") else config, f)\",
+            content
+        )
+        
+        with open(tf, \"w\") as f:
+            f.write(content)
+        print(f\"Patched {tf}\")
+
+# Find and patch dependencies.py
+deps_files = glob.glob(\"/root/.local/share/uv/tools/atopile/lib/python*/site-packages/faebryk/libs/project/dependencies.py\")
+for df in deps_files:
+    if os.path.exists(df):
+        with open(df, \"r\") as f:
+            content = f.read()
+        
+        # Fix error message handling
+        content = re.sub(
+            r\"(\\w+)\\.message\\b\",
+            r\"getattr(\\1, \\\"message\\\", getattr(\\1, \\\"error\\\", str(\\1)))\",
+            content
+        )
+        
+        with open(df, \"w\") as f:
+            f.write(content)
+        print(f\"Patched {df}\")
+"
+              
+              echo "=== Running atopile install ==="
+              atopile install || {
+                echo "=== atopile install failed, trying with --upgrade ==="
+                atopile install --upgrade || {
+                  echo "=== Both install attempts failed ==="
+                  exit 1
+                }
+              }
+              
+              echo "=== Build completed ==="
+            '
+
+      - name: Check build output
+        run: |
+          # List all files to see what was generated
+          echo "=== Listing all files in workspace ==="
+          find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" -o -name "*.kicad_*" | sort
+          
+          # Check if build directory exists
+          if [ -d "build" ]; then
+            echo "=== Build directory contents ==="
+            ls -la build/
+            find build -type f | sort
+          else
+            echo "Build directory does not exist"
+          fi
+          
+          # Check for any KiCad files generated
+          echo "=== Looking for KiCad files ==="
+          find . -name "*.kicad_pcb" -o -name "*.kicad_sch" | sort
+
+      - name: Upload Combined Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
