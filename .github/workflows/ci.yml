@@ -15,6 +15,16 @@ jobs:
           ATO_CI: "1"
         continue-on-error: true
         uses: docker://ghcr.io/atopile/atopile-kicad:latest
+        with:
+          entrypoint: /bin/bash
+          args: |
+            -c "
+            # First, run the fix script to patch known issues
+            python3 /github/workspace/fix_atopile_errors.py || true
+            
+            # Then run the atopile install command
+            atopile install
+            "
 
       - name: Check build output
         run: |
