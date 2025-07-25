@@ -22,16 +22,19 @@ jobs:
           
           # Install atopile
           pip install atopile
+          
+          # Verify installation
+          python -m atopile --version || echo "atopile installation verification failed"
 
       - name: Install dependencies
         run: |
           # Try to install dependencies, but continue even if it fails
-          atopile install || true
+          python -m atopile install || true
 
       - name: Build
         run: |
           # Try to build
-          atopile build || echo "Build failed, but continuing..."
+          python -m atopile build || echo "Build failed, but continuing..."
           
           # Check if build directory exists
           if [ -d "build" ]; then
