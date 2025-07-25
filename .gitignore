@@ -1,43 +1,39 @@
-# For PCBs designed using KiCad: https://www.kicad.org/
-# Format documentation: https://kicad.org/help/file-formats/
+# Atopile build artifacts
+build/
+*.bak
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*.kicad_pro.lck
 
-# Temporary files
+# KiCad temporary files
 *.000
 *.bak
 *.bck
 *.kicad_pcb-bak
 *.kicad_sch-bak
-*-backups
-*.kicad_prl
-*.sch-bak
-*~
-_autosave-*
-*.tmp
+*.kicad_pro.lck
 *-save.pro
 *-save.kicad_pcb
-*.kicad_pcb.lck
 fp-info-cache
+*-backups/
 
-# Netlist files (exported from Eeschema)
-*.net
-
-# Autorouter files (exported from Pcbnew)
-*.dsn
-*.ses
-
-# Exported BOM files
-*.xml
-*.csv
-
-build/
-.DS_Store
-
-# Virtual environment
-.venv/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
 venv/
+.env
 
-# .ato directory
-.ato/
+# OS files
+.DS_Store
+Thumbs.db
+*~
 
-# IDEs
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
