@@ -1,0 +1,275 @@
+import Power from "generics/interfaces.ato"
+import I2C from "generics/interfaces.ato"
+import SPI from "generics/interfaces.ato"
+import UART from "generics/interfaces.ato"
+import USB from "generics/interfaces.ato"
+import Pair from "generics/interfaces.ato"
+import Capacitor from "generics/capacitors.ato"
+import Resistor from "generics/resistors.ato"
+
+# Main AI Wearable Module
+module AIWearable:
+    # Power Management
+    power_3v3 = new Power
+    power_3v3.voltage = 3.3V +/- 5%
+    
+    power_1v8 = new Power
+    power_1v8.voltage = 1.8V +/- 5%
+    
+    # Battery connector and management
+    battery = new BatteryConnector
+    charger = new BatteryCharger
+    
+    # Main MCU - nRF52840 (ultra-low power, Arduino compatible)
+    mcu = new nRF52840Module
+    mcu.power ~ power_3v3
+    
+    # Camera Module - OV2640 or similar low power camera
+    camera = new CameraModule
+    camera.power ~ power_3v3
+    camera.i2c ~ mcu.i2c
+    camera.data ~ mcu.camera_interface
+    
+    # Microphone - MEMS microphone for always-on recording
+    mic = new MEMSMicrophone
+    mic.power ~ power_3v3
+    mic.data ~ mcu.i2s
+    
+    # Speaker - Small speaker with amplifier
+    speaker = new SpeakerModule
+    speaker.power ~ power_3v3
+    speaker.audio ~ mcu.dac
+    
+    # eSIM Module - For cellular connectivity
+    esim = new eSIMModule
+    esim.power ~ power_3v3
+    esim.uart ~ mcu.uart1
+    
+    # USB-C Connector for charging and programming
+    usb_c = new USBCConnector
+    usb_c.power ~ charger.input
+    usb_c.data ~ mcu.usb
+    
+    # Power switch
+    power_switch = new PowerSwitch
+    power_switch.input ~ battery.output
+    power_switch.output ~ power_3v3
+    
+    # Decoupling capacitors
+    cap1 = new Capacitor
+    cap1.value = 100nF +/- 10%
+    cap1.power ~ power_3v3
+    cap1.gnd ~ mcu.gnd
+    
+    cap2 = new Capacitor
+    cap2.value = 10uF +/- 20%
+    cap2.power ~ power_3v3
+    cap2.gnd ~ mcu.gnd
+
+# nRF52840 Module with ultra-low power features
+module nRF52840Module:
+    ic = new nRF52840
+    
+    # Crystal oscillators
+    xtal_32MHz = new Crystal32MHz
+    xtal_32kHz = new Crystal32kHz
+    
+    # Power connections
+    power = new Power
+    gnd = new Ground
+    
+    # Communication interfaces
+    i2c = new I2C
+    uart1 = new UART
+    spi = new SPI
+    usb = new USB
+    i2s = new I2S
+    
+    # Special interfaces
+    camera_interface = new ParallelInterface
+    dac = new DACOutput
+    
+    # Connect crystals
+    ic.xtal1 ~ xtal_32MHz.p1
+    ic.xtal2 ~ xtal_32MHz.p2
+    ic.xtal32k1 ~ xtal_32kHz.p1
+    ic.xtal32k2 ~ xtal_32kHz.p2
+    
+    # Power connections
+    ic.vdd ~ power
+    ic.vss ~ gnd
+
+# Camera Module - Low power, high FOV
+module CameraModule:
+    sensor = new OV2640
+    
+    power = new Power
+    i2c = new I2C
+    data = new ParallelInterface
+    
+    # Power management
+    ldo = new LDO_1v8
+    ldo.vin ~ power
+    ldo.vout ~ sensor.vddio
+    
+    sensor.vdda ~ power
+    sensor.i2c ~ i2c
+    sensor.data ~ data
+
+# MEMS Microphone for always-on recording
+module MEMSMicrophone:
+    mic = new SPH0645
+    
+    power = new Power
+    data = new I2S
+    
+    mic.vdd ~ power
+    mic.data ~ data
+    
+    # Pull-up resistors for I2S
+    r1 = new Resistor
+    r1.value = 10k +/- 5%
+    r1.p1 ~ data.ws
+    r1.p2 ~ power
+
+# Speaker Module with Class-D amplifier
+module SpeakerModule:
+    amp = new MAX98357A
+    speaker = new Speaker8Ohm
+    
+    power = new Power
+    audio = new I2S
+    
+    amp.vdd ~ power
+    amp.din ~ audio
+    amp.out_p ~ speaker.p1
+    amp.out_n ~ speaker.p2
+
+# eSIM Module for cellular connectivity
+module eSIMModule:
+    module = new SIM7600
+    
+    power = new Power
+    uart = new UART
+    
+    # Power regulation
+    ldo = new LDO_3v8
+    ldo.vin ~ power
+    ldo.vout ~ module.vbat
+    
+    module.uart ~ uart
+    
+    # Antenna
+    antenna = new CellularAntenna
+    module.rf ~ antenna.feed
+
+# Battery Management
+module BatteryConnector:
+    conn = new JST_SH_2pin
+    output = new Power
+
+module BatteryCharger:
+    ic = new BQ24075
+    
+    input = new Power
+    battery = new Power
+    system = new Power
+    
+    ic.in ~ input
+    ic.bat ~ battery
+    ic.out ~ system
+    
+    # Charging current setting
+    r_prog = new Resistor
+    r_prog.value = 2k +/- 1%  # 500mA charging
+    r_prog.p1 ~ ic.prog
+    r_prog.p2 ~ gnd
+
+# USB-C Connector
+module USBCConnector:
+    conn = new USB_C_Receptacle
+    
+    power = new Power
+    data = new USB
+    
+    # CC resistors for USB-C
+    r_cc1 = new Resistor
+    r_cc1.value = 5.1k +/- 5%
+    r_cc1.p1 ~ conn.cc1
+    r_cc1.p2 ~ gnd
+    
+    r_cc2 = new Resistor
+    r_cc2.value = 5.1k +/- 5%
+    r_cc2.p1 ~ conn.cc2
+    r_cc2.p2 ~ gnd
+
+# Power Switch
+module PowerSwitch:
+    switch = new SPDT_Switch
+    
+    input = new Power
+    output = new Power
+    
+    switch.com ~ input
+    switch.no ~ output
+
+# Supporting components
+component nRF52840:
+    footprint = "QFN-73-EP(7x7)"
+    mpn = "nRF52840-QIAA"
+
+component OV2640:
+    footprint = "CSP-24"
+    mpn = "OV2640"
+
+component SPH0645:
+    footprint = "LGA-6(3.5x2.65)"
+    mpn = "SPH0645LM4H-B"
+
+component MAX98357A:
+    footprint = "QFN-16(3x3)"
+    mpn = "MAX98357AEWL+T"
+
+component SIM7600:
+    footprint = "LCC-42"
+    mpn = "SIM7600G-H"
+
+component BQ24075:
+    footprint = "QFN-16(3x3)"
+    mpn = "BQ24075RGTR"
+
+component Crystal32MHz:
+    footprint = "Crystal_SMD_3225"
+    mpn = "ABM8G-32.000MHZ-B4Y-T"
+
+component Crystal32kHz:
+    footprint = "Crystal_SMD_3215"
+    mpn = "ABS07-32.768KHZ-T"
+
+component LDO_1v8:
+    footprint = "SOT-23-5"
+    mpn = "TLV70218DBVR"
+
+component LDO_3v8:
+    footprint = "SOT-23-5"
+    mpn = "TLV70438DBVR"
+
+component JST_SH_2pin:
+    footprint = "JST_SH_SM02B-SRSS-TB"
+    mpn = "SM02B-SRSS-TB"
+
+component USB_C_Receptacle:
+    footprint = "USB_C_Receptacle_HRO_TYPE-C-31-M-12"
+    mpn = "TYPE-C-31-M-12"
+
+component SPDT_Switch:
+    footprint = "SW_SPDT_PCM12"
+    mpn = "PCM12SMTR"
+
+component Speaker8Ohm:
+    footprint = "Speaker_11x15mm"
+    mpn = "CSS-1115-SMT"
+
+component CellularAntenna:
+    footprint = "Antenna_Chip"
+    mpn = "ANT-LTE-CHP-001"

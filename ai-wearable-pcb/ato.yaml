@@ -1,0 +1,6 @@
+ato-version: 0.2.0
+name: ai-wearable-pcb
+version: 1.0.0
+description: Ultra-small AI wearable PCB with camera, microphone, speaker, and eSIM
+author: AI Assistant
+license: MIT
