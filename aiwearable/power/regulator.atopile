@@ -1,0 +1,24 @@
+name regulator
+
+part USBC      = lib.conn.usb.usb_c_16p_prt_c(orientation="vertical")
+part BQ25120A  = lib.pm.bq25120a
+part LDO_3V3   = lib.pm.ncp161(L,"3V3")
+part SW        = lib.mechanical.slide_sw_2p2t
+
+net USB_VBUS = net("USB_VBUS")
+net BAT_OUT  = net("BAT_OUT")
+net SYS_3V3  = net("3V3")
+net GND      = net("GND")
+
+connect {
+  USBC.VBUS  -> USB_VBUS
+  BQ25120A.VIN <- USB_VBUS
+  BQ25120A.BAT -> BAT_OUT
+  LDO_3V3.IN  <- BAT_OUT
+  LDO_3V3.OUT -> SYS_3V3
+  SW.COM      <- BAT_OUT
+  SW.NO       -> LDO_3V3.EN
+  GNDs(USBC, BQ25120A, LDO_3V3, SW)
+}
+
+export USB_VBUS, BAT_OUT, SYS_3V3, GND

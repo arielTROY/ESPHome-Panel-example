@@ -1,0 +1,52 @@
+name aiwearable
+version 0.1.0
+author "Your Name"
+
+use power.regulator      as pwr
+use radio.lte_modem      as lte
+use audio.mic            as mic
+use audio.spk            as spk
+use vision.camera        as cam
+use host.mcu             as mcu
+
+export net VBUS    = pwr.USB_VBUS
+export net VBAT    = pwr.BAT_OUT
+export net 3V3     = pwr.SYS_3V3
+export net GND     = pwr.GND
+export net LTE_ANT = lte.ANT
+
+connect {
+  # supply tree
+  cam.VDD, mic.VDD, spk.VDD, lte.VDD, mcu.VDD = 3V3
+  cam.GND, mic.GND, spk.GND, lte.GND, mcu.GND = GND
+
+  # camera to MCU (8-bit DVP + I²C config)
+  cam.D[7:0]  -> mcu.GPIO[0:7]
+  cam.VSYNC     -> mcu.GPIO8
+  cam.HREF      -> mcu.GPIO9
+  cam.PCLK      -> mcu.GPIO10
+  cam.I2C_SCL   <-> mcu.I2C0_SCL
+  cam.I2C_SDA   <-> mcu.I2C0_SDA
+
+  # audio (PDM mic, I²S speaker)
+  mic.PDM_CLK   <-  mcu.GPIO11
+  mic.PDM_DATA  ->  mcu.GPIO12
+
+  spk.I2S_SD    <-  mcu.GPIO13
+  spk.I2S_WS    <-  mcu.GPIO14
+  spk.I2S_SCK   <-  mcu.GPIO15
+
+  # LTE modem (UART + SIM)
+  lte.UART_TX   -> mcu.UART1_RX
+  lte.UART_RX   <- mcu.UART1_TX
+  lte.RST       <- mcu.GPIO16
+  lte.PWRKEY    <- mcu.GPIO17
+
+  # debug / recharge
+  pwr.USBC_DP, pwr.USBC_DM -> testpoints
+}
+
+board {
+  outlines = rectangle(0mm, 0mm, 30mm, 30mm)
+  keepout  = rectangle(12mm, 30mm, 18mm, 32mm)
+}

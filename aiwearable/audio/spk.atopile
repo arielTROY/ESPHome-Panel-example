@@ -1,0 +1,18 @@
+name spk
+
+part MAX98357A = lib.audio.amp.max98357a
+part SPK       = lib.audio.speaker.exciter_15mm
+
+net VDD, GND, I2S_SD, I2S_WS, I2S_SCK
+
+connect {
+  MAX98357A.VDD   <- VDD
+  MAX98357A.GND   =  GND
+  MAX98357A.LRCLK <- I2S_WS
+  MAX98357A.BCLK  <- I2S_SCK
+  MAX98357A.DIN   <- I2S_SD
+  MAX98357A.OUTP  -> SPK.+
+  MAX98357A.OUTN  -> SPK.-
+}
+
+export VDD, GND, I2S_SD, I2S_WS, I2S_SCK
