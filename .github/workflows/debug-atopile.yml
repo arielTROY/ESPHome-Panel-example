@@ -1,0 +1,72 @@
+name: Debug Atopile Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Debug Environment
+        run: |
+          echo "=== Repository Structure ==="
+          ls -la
+          echo ""
+          echo "=== Checking for submodules ==="
+          git submodule status || echo "No submodules found"
+          echo ""
+          echo "=== Checking ato.yaml files ==="
+          find . -name "ato.yaml" -type f -exec echo "Found: {}" \; -exec cat {} \; -exec echo "---" \;
+          echo ""
+          echo "=== Checking for atopile files ==="
+          find . -name "*.ato" -o -name "*.atopile" | head -20
+
+      - name: Test Docker Image
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              echo "=== Testing atopile installation ==="
+              which atopile
+              atopile --version || echo "Version command failed"
+              
+              echo ""
+              echo "=== Testing Python environment ==="
+              python --version
+              pip list | grep -E "(atopile|faebryk|ruamel)" || echo "No relevant packages found"
+              
+              echo ""
+              echo "=== Checking for fix scripts ==="
+              ls -la *.py *.sh 2>/dev/null || echo "No scripts found"
+            '
+
+      - name: Test Atopile Install
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATOPILE_TELEMETRY=false \
+            -e ATOPILE_NO_INTERACTIVE=1 \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              # Pre-configure atopile
+              mkdir -p ~/.config/atopile
+              cat > ~/.config/atopile/config.yaml << EOF
+telemetry: false
+id: ci-runner
+first_run_complete: true
+EOF
+              
+              echo "=== Running atopile install ==="
+              atopile install -vv 2>&1 | tee install.log || {
+                echo "=== Install failed, showing last 50 lines of output ==="
+                tail -50 install.log
+                exit 1
+              }
+            '
