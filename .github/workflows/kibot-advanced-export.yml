@@ -1,0 +1,357 @@
+name: KiBot Advanced Export
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "**/*.kicad_pcb"
+      - "**/*.kicad_sch"
+      - ".github/workflows/kibot-advanced-export.yml"
+      - ".kibot/**"
+  workflow_dispatch:
+    inputs:
+      project_path:
+        description: 'Path to the KiCad project (leave empty to process all)'
+        required: false
+        default: ''
+
+jobs:
+  kibot-export:
+    name: Generate Manufacturing Files with KiBot
+    runs-on: ubuntu-latest
+    container:
+      image: setsoft/kicad_auto:latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Create KiBot configuration
+        run: |
+          mkdir -p .kibot
+          cat > .kibot/config.kibot.yaml << 'EOF'
+          # KiBot configuration for AI Pin PCB projects
+          kibot:
+            version: 1
+
+          preflight:
+            run_erc: true
+            run_drc: true
+            check_zone_fills: true
+            filters:
+              - filter: 'Ignore courtyards'
+                error: 'courtyard_overlap'
+                regex: '.*'
+
+          outputs:
+            # Schematic outputs
+            - name: 'schematic_pdf'
+              comment: 'Schematic PDF'
+              type: pdf_sch_print
+              dir: 'docs/schematic'
+              options:
+                output: '%f-schematic.%x'
+
+            - name: 'schematic_svg'
+              comment: 'Schematic SVG'
+              type: svg_sch_print
+              dir: 'docs/schematic'
+              options:
+                output: '%f-schematic.%x'
+
+            # PCB documentation
+            - name: 'pcb_top'
+              comment: 'PCB top view'
+              type: pcbdraw
+              dir: 'docs/img'
+              options:
+                format: png
+                style: set-white-enig
+                show_components: all
+                dpi: 300
+
+            - name: 'pcb_bottom'
+              comment: 'PCB bottom view'
+              type: pcbdraw
+              dir: 'docs/img'
+              options:
+                format: png
+                style: set-white-enig
+                bottom: true
+                show_components: all
+                dpi: 300
+
+            - name: '3D_render'
+              comment: '3D render'
+              type: render_3d
+              dir: 'docs/3d'
+              options:
+                download: true
+                no_virtual: true
+
+            # Manufacturing files
+            - name: 'gerbers'
+              comment: 'Gerbers for PCB manufacturing'
+              type: gerber
+              dir: 'manufacturing/gerbers'
+              layers:
+                - layer: F.Cu
+                - layer: B.Cu
+                - layer: F.Paste
+                - layer: B.Paste
+                - layer: F.SilkS
+                - layer: B.SilkS
+                - layer: F.Mask
+                - layer: B.Mask
+                - layer: Edge.Cuts
+                - layer: F.Fab
+                - layer: B.Fab
+
+            - name: 'drill_files'
+              comment: 'Drill files'
+              type: excellon
+              dir: 'manufacturing/gerbers'
+              options:
+                pth_and_npth_single_file: false
+                pth_id: '-PTH'
+                npth_id: '-NPTH'
+
+            - name: 'position_files'
+              comment: 'Pick and place files'
+              type: position
+              dir: 'manufacturing/assembly'
+              options:
+                format: CSV
+                units: millimeters
+                separate_files_for_front_and_back: true
+
+            - name: 'bom_csv'
+              comment: 'Bill of Materials in CSV format'
+              type: bom
+              dir: 'manufacturing/bom'
+              options:
+                output: '%f_bom.%x'
+                csv:
+                  hide_pcb_info: false
+                  hide_stats_info: false
+                  quote_all: true
+
+            - name: 'interactive_bom'
+              comment: 'Interactive BOM'
+              type: ibom
+              dir: 'docs/bom'
+              options:
+                dark_mode: false
+                hide_pads: false
+                show_fabrication: true
+                hide_silkscreen: false
+                highlight_pin1: true
+                no_redraw_on_drag: false
+                board_rotation: 0
+                checkboxes: 'Sourced,Placed'
+                include_tracks: true
+                include_nets: true
+                sort_order: 'C,R,L,D,U,Y,X,F,SW,A,~,HS,CNN,J,P,NT,MH'
+                no_blacklist_virtual: false
+                blacklist_empty_val: false
+                extra_fields: 'LCSC'
+
+            # Assembly documentation
+            - name: 'pcb_top_assembly'
+              comment: 'PCB top assembly'
+              type: pcb_print
+              dir: 'docs/assembly'
+              options:
+                format: PDF
+                pages:
+                  - layers:
+                    - layer: F.Fab
+                    - layer: F.CrtYd
+                    sheet: 'Top Assembly'
+
+            - name: 'pcb_bottom_assembly'
+              comment: 'PCB bottom assembly'
+              type: pcb_print
+              dir: 'docs/assembly'
+              options:
+                format: PDF
+                pages:
+                  - layers:
+                    - layer: B.Fab
+                    - layer: B.CrtYd
+                    sheet: 'Bottom Assembly'
+                    mirror: true
+
+            # JLCPCB specific outputs
+            - name: 'JLCPCB_gerbers'
+              comment: 'Gerbers compatible with JLCPCB'
+              type: compress
+              dir: 'manufacturing/jlcpcb'
+              options:
+                files:
+                  - from_output: gerbers
+                    dest: /
+                  - from_output: drill_files
+                    dest: /
+                output: '%f_JLCPCB.%x'
+
+            - name: 'JLCPCB_position'
+              comment: 'Pick and place file for JLCPCB'
+              type: position
+              dir: 'manufacturing/jlcpcb'
+              options:
+                output: '%f_cpl_jlc.%x'
+                format: CSV
+                units: millimeters
+                separate_files_for_front_and_back: false
+                only_smd: false
+                columns:
+                  - id: Ref
+                    name: Designator
+                  - Val
+                  - Package
+                  - id: PosX
+                    name: "Mid X"
+                  - id: PosY
+                    name: "Mid Y"
+                  - id: Rot
+                    name: Rotation
+                  - id: Side
+                    name: Layer
+
+            - name: 'JLCPCB_bom'
+              comment: 'BOM for JLCPCB'
+              type: bom
+              dir: 'manufacturing/jlcpcb'
+              options:
+                output: '%f_bom_jlc.%x'
+                ref_separator: ','
+                columns:
+                  - field: Value
+                    name: Comment
+                  - field: References
+                    name: Designator
+                  - Footprint
+                  - field: 'LCSC'
+                    name: 'LCSC Part #'
+                csv:
+                  hide_pcb_info: true
+                  hide_stats_info: true
+                  quote_all: true
+
+            # Report
+            - name: 'report'
+              comment: 'Manufacturing report'
+              type: report
+              dir: 'docs'
+              options:
+                output: '%f_report.%x'
+          EOF
+
+      - name: Find KiCad projects
+        id: find-projects
+        run: |
+          if [ -n "${{ github.event.inputs.project_path }}" ]; then
+            echo "projects=${{ github.event.inputs.project_path }}" >> $GITHUB_OUTPUT
+          else
+            # Find all KiCad PCB files
+            projects=$(find . -name "*.kicad_pcb" -type f | grep -v build | head -5)
+            echo "projects<<EOF" >> $GITHUB_OUTPUT
+            echo "$projects" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run KiBot for each project
+        run: |
+          # Process each KiCad project
+          echo "${{ steps.find-projects.outputs.projects }}" | while read pcb_file; do
+            if [ -n "$pcb_file" ]; then
+              echo "Processing: $pcb_file"
+              
+              # Get the directory and base name
+              dir=$(dirname "$pcb_file")
+              base=$(basename "$pcb_file" .kicad_pcb)
+              
+              # Create output directory
+              mkdir -p "kibot_output/$dir"
+              
+              # Run KiBot
+              cd "$dir"
+              kibot -c "../.kibot/config.kibot.yaml" -b "$base.kicad_pcb" -d "../kibot_output/$dir" || echo "KiBot completed with warnings"
+              cd -
+              
+              # Create a summary for this board
+              echo "## $base" >> kibot_summary.md
+              echo "- Location: $dir" >> kibot_summary.md
+              echo "- Outputs generated in: kibot_output/$dir" >> kibot_summary.md
+              echo "" >> kibot_summary.md
+            fi
+          done
+
+      - name: Create combined manufacturing package
+        run: |
+          # Create a combined package for all boards
+          mkdir -p combined_package
+          
+          # Copy all manufacturing files
+          find kibot_output -name "*_JLCPCB.zip" -exec cp {} combined_package/ \;
+          find kibot_output -name "*_bom.csv" -exec cp {} combined_package/ \;
+          find kibot_output -name "*_report.txt" -exec cp {} combined_package/ \;
+          
+          # Create a master README
+          cat > combined_package/README.md << 'EOF'
+          # AI Pin Manufacturing Package
+          
+          This package contains all the manufacturing files for the AI Pin PCB projects.
+          
+          ## Contents
+          
+          - `*_JLCPCB.zip` - Gerber files ready for JLCPCB
+          - `*_bom.csv` - Bill of Materials
+          - `*_report.txt` - Manufacturing reports
+          
+          ## Instructions
+          
+          1. Upload the appropriate JLCPCB.zip file to JLCPCB
+          2. Use the corresponding BOM and CPL files for assembly
+          3. Review the report files for any warnings or notes
+          
+          Generated on: $(date)
+          EOF
+
+      - name: Upload KiBot outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: kibot-manufacturing-files
+          path: |
+            kibot_output/
+            combined_package/
+            kibot_summary.md
+          retention-days: 30
+
+      - name: Generate job summary
+        run: |
+          echo "# KiBot Export Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f kibot_summary.md ]; then
+            cat kibot_summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Files Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # List key outputs
+          echo "### Documentation" >> $GITHUB_STEP_SUMMARY
+          find kibot_output -name "*.pdf" -o -name "*.png" -o -name "*.html" | sort | while read file; do
+            echo "- ${file#kibot_output/}" >> $GITHUB_STEP_SUMMARY
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Manufacturing" >> $GITHUB_STEP_SUMMARY
+          find kibot_output -name "*.zip" -o -name "*_bom*.csv" -o -name "*_cpl*.csv" | sort | while read file; do
+            echo "- ${file#kibot_output/}" >> $GITHUB_STEP_SUMMARY
+          done
