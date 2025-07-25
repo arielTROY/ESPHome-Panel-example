@@ -9,6 +9,24 @@ export DO_NOT_TRACK=1
 
 # Ensure Python can import our sitecustomize patch (located in repo root)
 export PYTHONPATH="/github/workspace:${PYTHONPATH}"
+
+# -----------------------------------------------------------------------------
+# Copy sitecustomize.py into every uv-managed site-packages directory so that it
+# is *always* discoverable, even if PYTHONPATH gets wiped by uv or pipx.
+# -----------------------------------------------------------------------------
+if [ -f "/github/workspace/sitecustomize.py" ]; then
+  echo "=== Propagating sitecustomize.py into uv site-packages ==="
+  # Iterate over all potential python versions inside the uv tool dir
+  while IFS= read -r pkg_dir; do
+    echo "Copying sitecustomize.py to: $pkg_dir"
+    cp /github/workspace/sitecustomize.py "$pkg_dir/sitecustomize.py" || true
+  done < <(find /root/.local/share/uv/tools -type d -name "site-packages" 2>/dev/null)
+else
+  echo "WARNING: sitecustomize.py not found in workspace – dataclass YAML fix will be unavailable"
+fi
+
+# Continue with telemetry config pre-seed so TelemetryConfig.load() never tries
+# to write the file (avoids dataclass serialisation path entirely).
 mkdir -p ~/.config/atopile
 cat > ~/.config/atopile/config.yaml << EOF
 telemetry: false

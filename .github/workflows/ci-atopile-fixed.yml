@@ -1,0 +1,63 @@
+name: CI Build (Atopile Fixed)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build using Atopile container with robust fixes
+        env:
+          ATO_CI: "1"
+          ATOPILE_TELEMETRY: "false"
+          DO_NOT_TRACK: "1"
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/github/workspace \
+            -w /github/workspace \
+            -e ATO_CI=1 \
+            -e ATOPILE_TELEMETRY=false \
+            -e DO_NOT_TRACK=1 \
+            ghcr.io/atopile/atopile-kicad:latest \
+            bash -c '
+              set -e
+              echo "=== Executing docker_fix_script.sh ==="
+              chmod +x /github/workspace/docker_fix_script.sh
+              /github/workspace/docker_fix_script.sh
+
+              echo "=== Installing project dependencies via atopile ==="
+              atopile install --no-telemetry || {
+                echo "Install failed even after fixes!";
+                exit 1;
+              }
+
+              echo "=== Building project ==="
+              atopile build --schematic --pcb --bom --placement || {
+                echo "Build failed!";
+                exit 1;
+              }
+
+              echo "=== Build completed successfully ==="
+            '
+
+      - name: Upload build artefacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-artifacts
+          path: |
+            build/
+            **/*.kicad_pcb
+            **/*.kicad_sch
+            **/*.csv
+            **/*.pos
+            **/*.zip
+            **/*.pdf
