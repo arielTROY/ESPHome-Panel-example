@@ -9,45 +9,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+      - name: Build with atopile-kicad
+        continue-on-error: true
+        uses: docker://ghcr.io/atopile/atopile-kicad:latest
 
-      - name: Install atopile
+      - name: Check build output
         run: |
-          # Create config directory and disable telemetry
-          mkdir -p ~/.config/atopile
-          echo "telemetry: false" > ~/.config/atopile/config.yaml
-          
-          # Install atopile
-          pip install atopile
-          
-          # Verify installation
-          python -m atopile --version || echo "atopile installation verification failed"
-
-      - name: Install dependencies
-        run: |
-          # Try to install dependencies, but continue even if it fails
-          python -m atopile install || true
-
-      - name: Build
-        run: |
-          # Try to build
-          python -m atopile build || echo "Build failed, but continuing..."
+          # List all files to see what was generated
+          echo "=== Listing all files in workspace ==="
+          find . -type f -name "*.zip" -o -name "*.csv" -o -name "*.pos" | sort
           
           # Check if build directory exists
           if [ -d "build" ]; then
-            echo "Build directory exists"
+            echo "=== Build directory contents ==="
             ls -la build/
+            find build -type f | sort
           else
-            echo "Build directory does not exist, creating empty one"
-            mkdir -p build
-            echo "Build failed due to atopile bugs" > build/README.txt
+            echo "Build directory does not exist"
           fi
 
       - name: Upload Combined Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build
           path: build
